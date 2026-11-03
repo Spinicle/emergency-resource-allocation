@@ -14,6 +14,7 @@
     "db:enums": "tsx scripts/check-enums.ts"
   },
   "dependencies": {
+    "@tanstack/react-table": "^9.3.1",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
