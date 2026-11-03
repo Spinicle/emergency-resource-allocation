@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:reset": "tsx scripts/reset-db.ts",
     "db:test": "tsx scripts/test-db.ts",
-    "db:race": "tsx scripts/race-test.ts"
+    "db:race": "tsx scripts/race-test.ts",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
