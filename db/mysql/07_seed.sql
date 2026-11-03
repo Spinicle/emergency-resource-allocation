@@ -669,9 +669,10 @@ CALL sp_allocate(@it5_ors,  @b_blr_ors_01,  1000, @u_coord, @a5_ors);
 -- the duplicate Bellandur request is cancelled (nothing was allocated to it).
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 24 HOUR);
 CALL sp_adjust_stock(@b_blr_inf_01, -80, 'WRITE_OFF', @u_cm_central);
--- Request cancel as in HANDOFF 4.4: lock the items, cancel them, the request follows.
+-- Request cancel exactly as HANDOFF 4.4: lock the items in id order, cancel
+-- them, the request follows. (db:reset discards the SELECT's output.)
 START TRANSACTION;
-SELECT COUNT(*) INTO @locked FROM request_item WHERE request_id = @rq9 FOR UPDATE;
+SELECT request_item_id FROM request_item WHERE request_id = @rq9 ORDER BY request_item_id FOR UPDATE;
 UPDATE request_item SET status = 'CANCELLED' WHERE request_id = @rq9;
 COMMIT;
 
@@ -701,7 +702,7 @@ UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id = @a16_rice;
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 4 HOUR);
 CALL sp_cancel_allocation(@a16_rice, @u_coord);
 START TRANSACTION;
-SELECT COUNT(*) INTO @locked FROM request_item WHERE request_id = @rq16 FOR UPDATE;
+SELECT request_item_id FROM request_item WHERE request_id = @rq16 ORDER BY request_item_id FOR UPDATE;
 UPDATE request_item SET status = 'CANCELLED' WHERE request_id = @rq16;
 COMMIT;
 
