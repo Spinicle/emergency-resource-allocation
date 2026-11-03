@@ -272,7 +272,199 @@ INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percen
     (@i_nanjangud,    @u_field3, @t0 - INTERVAL 17 DAY,  4, 'LOW');
 
 -- ===========================================================================
--- Timeline: stock movements in the order they happened
+-- Requests (16) and items (44), inserted as the app does: status left to its
+-- default (OPEN / PENDING) and quantity_allocated left out. The triggers set
+-- every later status from the allocations and cancels in the timeline below.
+-- Deadlines are spread over overdue, within 6 h, within 24 h, later and none.
+-- ===========================================================================
+
+-- ---- Mysuru Dengue Outbreak (closed 14 days ago) --------------------------
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_nr_mohalla, @u_field3, @t0 - INTERVAL 37 DAY, @t0 - INTERVAL 35 DAY,
+        'Dengue cases rising in N.R. Mohalla; the urban health centre needs NS1 test kits, '
+        'IV fluids and mosquito nets for the fever ward.');
+SET @rq1 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq1, @r_dns, 200, 'CRITICAL');
+SET @it1_dns = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq1, @r_ivf, 300, 'CRITICAL');
+SET @it1_ivf = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq1, @r_net, 500, 'MEDIUM');
+SET @it1_net = LAST_INSERT_ID();
+
+-- Only partly served before the emergency closed: its open items stay out of
+-- the queue (CLOSED emergency) and show up as unmet demand.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_nanjangud, @u_field3, @t0 - INTERVAL 30 DAY, @t0 - INTERVAL 27 DAY,
+        'Nanjangud PHC fever clinic is overflowing: ORS, paracetamol and bleaching powder '
+        'for the wards and the open drains.');
+SET @rq2 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq2, @r_ors, 1000, 'HIGH');
+SET @it2_ors = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq2, @r_pcm, 800, 'MEDIUM');
+SET @it2_pcm = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq2, @r_blch, 200, 'MEDIUM');
+SET @it2_blch = LAST_INSERT_ID();
+
+-- ---- Bengaluru Urban Flood --------------------------------------------------
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_bellandur, @u_field1, @t0 - INTERVAL 116 HOUR, @t0 - INTERVAL 110 HOUR,
+        'Bellandur lake overflow: families stranded on upper floors of lakeside apartments '
+        'need drinking water and ready-to-eat meals.');
+SET @rq3 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq3, @r_wtr, 2000, 'CRITICAL');
+SET @it3_wtr = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq3, @r_rte, 300, 'HIGH');
+SET @it3_rte = LAST_INSERT_ID();
+
+-- Overdue, and life jackets have run out everywhere usable: the top of the queue.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_bellandur, @u_field1, @t0 - INTERVAL 60 HOUR, @t0 - INTERVAL 2 HOUR,
+        'Rescue boats and life jackets to evacuate elderly residents from flooded Bellandur '
+        'apartments; ropes for the rescue teams.');
+SET @rq4 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq4, @r_lj, 150, 'CRITICAL');
+SET @it4_lj = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq4, @r_boat, 4, 'CRITICAL');
+SET @it4_boat = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq4, @r_rope, 40, 'HIGH');
+SET @it4_rope = LAST_INSERT_ID();
+
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_mahadevapura, @u_field1, @t0 - INTERVAL 30 HOUR, @t0 + INTERVAL 4 HOUR,
+        'Mahadevapura: ground floors flooded; families moved to the community hall need '
+        'blankets, ORS, mosquito nets and life jackets.');
+SET @rq5 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq5, @r_blkt, 400, 'HIGH');
+SET @it5_blkt = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq5, @r_ors, 1000, 'MEDIUM');
+SET @it5_ors = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq5, @r_net, 300, 'LOW');
+SET @it5_net = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq5, @r_lj, 60, 'HIGH');
+SET @it5_lj = LAST_INSERT_ID();
+
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_koramangala, @u_field1, @t0 - INTERVAL 84 HOUR, @t0 - INTERVAL 60 HOUR,
+        'Koramangala 6th Block relief camp: rice, dal and hygiene kits for 300 families.');
+SET @rq6 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq6, @r_rice, 500, 'MEDIUM');
+SET @it6_rice = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq6, @r_dal, 200, 'MEDIUM');
+SET @it6_dal = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq6, @r_hyg, 300, 'MEDIUM');
+SET @it6_hyg = LAST_INSERT_ID();
+
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_koramangala, @u_coord, @t0 - INTERVAL 20 HOUR, @t0 + INTERVAL 20 HOUR,
+        'Koramangala camp residents: water purification tablets, paracetamol and ready-to-eat '
+        'meals while the community kitchens are shut.');
+SET @rq7 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq7, @r_pur, 200, 'MEDIUM');
+SET @it7_pur = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq7, @r_pcm, 300, 'LOW');
+SET @it7_pcm = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq7, @r_rte, 400, 'HIGH');
+SET @it7_rte = LAST_INSERT_ID();
+
+-- On a RESOLVED impact: still in the queue, near the bottom.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_yelahanka, @u_field1, @t0 - INTERVAL 50 HOUR, NULL,
+        'Yelahanka: tarpaulins and solar lanterns for houses with leaking roofs as the water recedes.');
+SET @rq8 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq8, @r_tarp, 50, 'LOW');
+SET @it8_tarp = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq8, @r_lant, 50, 'LOW');
+SET @it8_lant = LAST_INSERT_ID();
+
+-- Cancelled before anything was allocated.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_bellandur, @u_field1, @t0 - INTERVAL 26 HOUR, @t0 + INTERVAL 10 HOUR,
+        'Boats and life jackets for Bellandur (raised again by mistake; duplicate of the '
+        'earlier rescue request).');
+SET @rq9 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq9, @r_boat, 2, 'HIGH');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq9, @r_lj, 20, 'HIGH');
+
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_mahadevapura, @u_coord, @t0 - INTERVAL 3 HOUR, @t0 + INTERVAL 60 HOUR,
+        'Generators for the Mahadevapura pumping station and ward clinic; IV fluids and first '
+        'aid kits for the clinic.');
+SET @rq10 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq10, @r_gen, 4, 'CRITICAL');
+SET @it10_gen = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq10, @r_ivf, 100, 'HIGH');
+SET @it10_ivf = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq10, @r_fak, 50, 'MEDIUM');
+SET @it10_fak = LAST_INSERT_ID();
+
+-- ---- Kodagu Landslide -----------------------------------------------------
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_madikeri, @u_field2, @t0 - INTERVAL 66 HOUR, @t0 - INTERVAL 40 HOUR,
+        'Madikeri: landslide-displaced families at the town hall need rice, drinking water '
+        'and blankets.');
+SET @rq11 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq11, @r_rice, 400, 'HIGH');
+SET @it11_rice = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq11, @r_wtr, 3000, 'CRITICAL');
+SET @it11_wtr = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq11, @r_blkt, 300, 'HIGH');
+SET @it11_blkt = LAST_INSERT_ID();
+
+-- The nearest depot is short on tarpaulins and tents; Kushalnagar covers.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_madikeri, @u_field2, @t0 - INTERVAL 22 HOUR, @t0 + INTERVAL 5 HOUR,
+        'Madikeri: tarpaulins and tents for houses with roofs damaged by falling debris; '
+        'generators for the relief camp.');
+SET @rq12 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq12, @r_tarp, 300, 'CRITICAL');
+SET @it12_tarp = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq12, @r_tent, 30, 'HIGH');
+SET @it12_tent = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq12, @r_gen, 5, 'HIGH');
+SET @it12_gen = LAST_INSERT_ID();
+
+-- IV fluid: Madikeri has 40, the rest comes from Mysuru's LIMITED hospital.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_makkandur, @u_field2, @t0 - INTERVAL 40 HOUR, @t0 + INTERVAL 18 HOUR,
+        'Makkandur: injured residents at the school shelter need IV fluids, first aid kits and ORS.');
+SET @rq13 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq13, @r_ivf, 150, 'CRITICAL');
+SET @it13_ivf = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq13, @r_fak, 40, 'HIGH');
+SET @it13_fak = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq13, @r_ors, 500, 'MEDIUM');
+SET @it13_ors = LAST_INSERT_ID();
+
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_bhagamandala, @u_field2, @t0 - INTERVAL 10 HOUR, NULL,
+        'Bhagamandala: the Kaveri is rising at the Triveni Sangama; ropes, life jackets and '
+        'lanterns ahead of an evacuation.');
+SET @rq14 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq14, @r_rope, 20, 'MEDIUM');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq14, @r_lj, 30, 'HIGH');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq14, @r_lant, 100, 'LOW');
+
+-- Napoklu has no observation yet (S = 0.5, A = 0).
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_napoklu, @u_field2, @t0 - INTERVAL 2 HOUR, @t0 + INTERVAL 30 HOUR,
+        'Napoklu: road cut off by a landslide; first supplies of ready-to-eat meals, drinking '
+        'water and purification tablets.');
+SET @rq15 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq15, @r_rte, 200, 'HIGH');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq15, @r_wtr, 1000, 'HIGH');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq15, @r_pur, 100, 'MEDIUM');
+
+-- Cancelled after its allocation was dispatched and called back.
+INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
+VALUES (@i_makkandur, @u_coord, @t0 - INTERVAL 6 HOUR, @t0 + INTERVAL 12 HOUR,
+        'Rice for the Makkandur school shelter (cancelled: the shelter moved to the Madikeri '
+        'town hall, which is already supplied).');
+SET @rq16 = LAST_INSERT_ID();
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (@rq16, @r_rice, 200, 'MEDIUM');
+SET @it16_rice = LAST_INSERT_ID();
+
+-- ===========================================================================
+-- Timeline: stock, allocations and closures in the order they happened
 --
 -- allocation.allocated_at and stock_ledger.changed_at default to
 -- CURRENT_TIMESTAMP, which follows the session clock. Each step sets that clock
@@ -371,12 +563,47 @@ CALL sp_add_batch(@r_inf,  @c_mys, 'MYS-INF-01',  100,   @d0 + INTERVAL 30 DAY, 
 CALL sp_add_batch(@r_wtr,  @c_mys, 'MYS-WTR-01',  2000,  @d0 + INTERVAL 90 DAY,  @u_admin, @b_mys_wtr_01);
 CALL sp_add_batch(@r_str,  @c_mys, 'MYS-STR-01',  20,    NULL, @u_admin, @b_mys_str_01);
 
+-- Allocations below are made by the coordinator, one item per CALL, each from
+-- the batch sp_suggest_batches ranks first at that moment (nearest open center,
+-- then earliest expiry). Dispatch and deliver are plain status UPDATEs.
+
+-- ---- -36 days: Mysuru outbreak, N.R. Mohalla served in full ---------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 36 DAY);
+-- DNS-01 and IVF-01 expire first (DNS-01 has expired since).
+CALL sp_allocate(@it1_dns, @b_mys_dns_01, 200, @u_coord, @a1_dns);
+CALL sp_allocate(@it1_ivf, @b_mys_ivf_01, 300, @u_coord, @a1_ivf);
+CALL sp_allocate(@it1_net, @b_mys_net_01, 500, @u_coord, @a1_net);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a1_dns, @a1_ivf, @a1_net);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a1_dns, @a1_ivf, @a1_net);
+
+-- ---- -29 days: Nanjangud served in part -----------------------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 29 DAY);
+-- PCM-02 still had 9 days left and expires before PCM-01, so it goes first.
+CALL sp_allocate(@it2_ors, @b_mys_ors_01, 1000, @u_coord, @a2_ors);
+CALL sp_allocate(@it2_pcm, @b_mys_pcm_02, 400,  @u_coord, @a2_pcm);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a2_ors, @a2_pcm);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a2_ors, @a2_pcm);
+
+-- ---- -14 days: the Mysuru outbreak is over --------------------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 14 DAY);
+UPDATE emergency_impact SET status = 'RESOLVED' WHERE impact_id IN (@i_nr_mohalla, @i_nanjangud);
+UPDATE emergency SET status = 'CLOSED', end_time = @t0 - INTERVAL 14 DAY WHERE emergency_id = @e_mysuru;
+
+-- ---- -115 hours: first flood relief from the Whitefield camp, nearest to Bellandur
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 115 HOUR);
+CALL sp_allocate(@it3_wtr, @b_wfd_wtr_01, 2000, @u_coord, @a3_wtr);
+CALL sp_allocate(@it3_rte, @b_wfd_rte_01, 300,  @u_coord, @a3_rte);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a3_wtr, @a3_rte);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a3_wtr, @a3_rte);
+
 -- ---- -97 hours: flood water reaches the Whitefield camp's store -----------
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 97 HOUR);
 CALL sp_adjust_stock(@b_wfd_rte_01, -50, 'WRITE_OFF', @u_admin);
 
--- ---- -96 hours: flood top-up at the Central Warehouse ---------------------
+-- ---- -96 hours: Whitefield camp flooded out and closed; its remaining stock
+-- stays on the books but can't be allocated. Top-up at the Central Warehouse.
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 96 HOUR);
+UPDATE resource_center SET status = 'CLOSED' WHERE center_id = @c_wfd;
 CALL sp_add_batch(@r_rice, @c_blr, 'BLR-RICE-02', 1500,  @d0 + INTERVAL 200 DAY, @u_cm_central, @b_blr_rice_02);
 CALL sp_add_batch(@r_rte,  @c_blr, 'BLR-RTE-02',  1500,  @d0 + INTERVAL 90 DAY,  @u_cm_central, @b_blr_rte_02);
 CALL sp_add_batch(@r_wtr,  @c_blr, 'BLR-WTR-02',  20000, @d0 + INTERVAL 180 DAY, @u_cm_central, @b_blr_wtr_02);
@@ -386,23 +613,104 @@ CALL sp_add_batch(@r_blkt, @c_blr, 'BLR-BLKT-02', 1000,  NULL, @u_cm_central, @b
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 90 HOUR);
 CALL sp_adjust_stock(@b_blr_rice_01, -25, 'ADJUSTMENT', @u_cm_central);
 
+-- ---- -80 hours: Koramangala camp served from the Central Warehouse --------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 80 HOUR);
+-- RICE-01 expires before RICE-02.
+CALL sp_allocate(@it6_rice, @b_blr_rice_01, 500, @u_coord, @a6_rice);
+CALL sp_allocate(@it6_dal,  @b_blr_dal_01,  200, @u_coord, @a6_dal);
+CALL sp_allocate(@it6_hyg,  @b_blr_hyg_01,  300, @u_coord, @a6_hyg);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a6_rice, @a6_dal, @a6_hyg);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a6_rice, @a6_dal, @a6_hyg);
+
+-- ---- -64 hours: Madikeri town hall served from the Madikeri depot ---------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 64 HOUR);
+-- WTR-01 is the only water there yet (WTR-02 arrives at -48 h) and expires first anyway.
+CALL sp_allocate(@it11_rice, @b_mdk_rice_01, 400,  @u_coord, @a11_rice);
+CALL sp_allocate(@it11_wtr,  @b_mdk_wtr_01,  3000, @u_coord, @a11_wtr);
+CALL sp_allocate(@it11_blkt, @b_mdk_blkt_01, 300,  @u_coord, @a11_blkt);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a11_rice, @a11_wtr, @a11_blkt);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a11_rice, @a11_wtr, @a11_blkt);
+
+-- ---- -55 hours: Bellandur rescue kit. Every usable life jacket goes; the
+-- jackets are still on the way, the boats and ropes have arrived.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 55 HOUR);
+CALL sp_allocate(@it4_lj,   @b_blr_lj_01,   80, @u_coord, @a4_lj);
+CALL sp_allocate(@it4_boat, @b_blr_boat_01, 4,  @u_coord, @a4_boat);
+CALL sp_allocate(@it4_rope, @b_blr_rope_01, 40, @u_coord, @a4_rope);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a4_lj, @a4_boat, @a4_rope);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a4_boat, @a4_rope);
+
 -- ---- -48 hours: landslide top-up in Kodagu --------------------------------
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 48 HOUR);
 CALL sp_add_batch(@r_rte,  @c_mdk, 'MDK-RTE-02',  500,   @d0 + INTERVAL 75 DAY,  @u_cm_kodagu, @b_mdk_rte_02);
 CALL sp_add_batch(@r_wtr,  @c_mdk, 'MDK-WTR-02',  6000,  @d0 + INTERVAL 150 DAY, @u_cm_kodagu, @b_mdk_wtr_02);
 CALL sp_add_batch(@r_pur,  @c_ksn, 'KSN-PUR-01',  300,   @d0 + INTERVAL 200 DAY, @u_admin,     @b_ksn_pur_01);
 
+-- ---- -38 hours: Makkandur. Madikeri's 40 bottles of IV fluid aren't enough;
+-- the rest comes from the LIMITED Mysuru hospital, earliest expiry first.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 38 HOUR);
+CALL sp_allocate(@it13_ivf, @b_mdk_ivf_01, 40,  @u_coord, @a13_ivf_mdk);
+CALL sp_allocate(@it13_ivf, @b_mys_ivf_01, 110, @u_coord, @a13_ivf_mys);
+CALL sp_allocate(@it13_fak, @b_mdk_fak_01, 40,  @u_coord, @a13_fak);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id IN (@a13_ivf_mdk, @a13_ivf_mys, @a13_fak);
+UPDATE allocation SET status = 'DELIVERED'  WHERE allocation_id IN (@a13_ivf_mdk, @a13_fak);
+
 -- ---- -30 hours: recount finds 20 more blankets at Madikeri ----------------
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 30 HOUR);
 CALL sp_adjust_stock(@b_mdk_blkt_01, 20, 'ADJUSTMENT', @u_cm_kodagu);
 
--- ---- -24 hours: expired infant formula written off (40 tins await disposal)
+-- ---- -28 hours: Mahadevapura, reserved. ORS from the batch expiring in 2 days.
+-- No life jackets left anywhere usable.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 28 HOUR);
+CALL sp_allocate(@it5_blkt, @b_blr_blkt_01, 400,  @u_coord, @a5_blkt);
+CALL sp_allocate(@it5_ors,  @b_blr_ors_01,  1000, @u_coord, @a5_ors);
+
+-- ---- -24 hours: expired infant formula written off (40 tins await disposal);
+-- the duplicate Bellandur request is cancelled (nothing was allocated to it).
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 24 HOUR);
 CALL sp_adjust_stock(@b_blr_inf_01, -80, 'WRITE_OFF', @u_cm_central);
+-- Request cancel as in HANDOFF 4.4: lock the items, cancel them, the request follows.
+START TRANSACTION;
+SELECT COUNT(*) INTO @locked FROM request_item WHERE request_id = @rq9 FOR UPDATE;
+UPDATE request_item SET status = 'CANCELLED' WHERE request_id = @rq9;
+COMMIT;
+
+-- ---- -20 hours: Madikeri roofs. The depot's 120 tarpaulins, then Kushalnagar;
+-- all 25 of the depot's tents. No generator reserved yet.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 20 HOUR);
+CALL sp_allocate(@it12_tarp, @b_mdk_tarp_01, 120, @u_coord, @a12_tarp_mdk);
+CALL sp_allocate(@it12_tarp, @b_ksn_tarp_01, 180, @u_coord, @a12_tarp_ksn);
+CALL sp_allocate(@it12_tent, @b_mdk_tent_01, 25,  @u_coord, @a12_tent);
+
+-- ---- -18 / -16 hours: purification tablets reserved for Koramangala, then
+-- released (the camp got a water tanker instead). The item is PENDING again.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 18 HOUR);
+CALL sp_allocate(@it7_pur, @b_blr_pur_01, 200, @u_coord, @a7_pur);
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 16 HOUR);
+CALL sp_cancel_allocation(@a7_pur, @u_coord);
 
 -- ---- -12 hours: expired bleaching powder written off in full --------------
 SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 12 HOUR);
 CALL sp_adjust_stock(@b_blr_blch_01, -500, 'WRITE_OFF', @u_cm_central);
+
+-- ---- -5 / -4 hours: rice for Makkandur dispatched, called back when the
+-- shelter moved, and the request cancelled.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 5 HOUR);
+CALL sp_allocate(@it16_rice, @b_mdk_rice_01, 200, @u_coord, @a16_rice);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id = @a16_rice;
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 4 HOUR);
+CALL sp_cancel_allocation(@a16_rice, @u_coord);
+START TRANSACTION;
+SELECT COUNT(*) INTO @locked FROM request_item WHERE request_id = @rq16 FOR UPDATE;
+UPDATE request_item SET status = 'CANCELLED' WHERE request_id = @rq16;
+COMMIT;
+
+-- ---- -2 hours: Mahadevapura pumping station. The Central Warehouse's last 3
+-- generators are reserved; IV fluid is on its way.
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 2 HOUR);
+CALL sp_allocate(@it10_gen, @b_blr_gen_01, 3,   @u_coord, @a10_gen);
+CALL sp_allocate(@it10_ivf, @b_blr_ivf_01, 100, @u_coord, @a10_ivf);
+UPDATE allocation SET status = 'DISPATCHED' WHERE allocation_id = @a10_ivf;
 
 -- ===========================================================================
 -- Final state
