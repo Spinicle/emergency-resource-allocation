@@ -148,3 +148,61 @@ SELECT s.stock_id,
   JOIN resource_center c ON c.center_id   = s.center_id
  WHERE s.quantity_available > 0
    AND s.expiry_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY;
+
+-- ---------------------------------------------------------------------------
+-- v_batch_suggestions: for every open item (a row of v_priority_queue), the
+-- usable batches of its resource at OPERATIONAL or LIMITED centers.
+-- sp_suggest_batches (05_procedures.sql) returns one item's rows.
+--
+-- Order (suggestion_rank): nearest center first (from the item's impact
+-- location), then earliest expiry with no-expiry last, then stock_id.
+-- suggested_qty splits what the item still needs across the batches in that
+-- order: each batch gives what's left, up to its quantity; later batches get 0.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE
+    SQL SECURITY INVOKER
+    VIEW v_batch_suggestions AS
+WITH candidates AS (
+    SELECT q.request_item_id,
+           q.resource_id,
+           q.quantity_remaining,
+           s.stock_id,
+           s.batch_code,
+           s.center_id,
+           c.name                             AS center_name,
+           c.status                           AS center_status,
+           s.quantity_available,
+           s.expiry_date,
+           DATEDIFF(s.expiry_date, CURDATE()) AS days_left,
+           fn_distance_km(q.latitude, q.longitude, l.latitude, l.longitude) AS distance_km
+      FROM v_priority_queue q
+      JOIN stock s           ON s.resource_id = q.resource_id
+      JOIN resource_center c ON c.center_id   = s.center_id
+      JOIN location l        ON l.location_id = c.location_id
+     WHERE s.quantity_available > 0
+       AND (s.expiry_date IS NULL OR s.expiry_date >= CURDATE())
+       AND c.status IN ('OPERATIONAL', 'LIMITED')
+),
+ranked AS (
+    SELECT cand.*,
+           ROW_NUMBER() OVER w AS suggestion_rank,
+           COALESCE(SUM(cand.quantity_available)
+                        OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS earlier_qty
+      FROM candidates cand
+    WINDOW w AS (PARTITION BY cand.request_item_id
+                 ORDER BY cand.distance_km, cand.expiry_date IS NULL, cand.expiry_date, cand.stock_id)
+)
+SELECT request_item_id,
+       resource_id,
+       stock_id,
+       batch_code,
+       center_id,
+       center_name,
+       center_status,
+       quantity_available,
+       expiry_date,
+       days_left,
+       distance_km,
+       suggestion_rank,
+       LEAST(quantity_available, GREATEST(0, quantity_remaining - earlier_qty)) AS suggested_qty
+  FROM ranked;
