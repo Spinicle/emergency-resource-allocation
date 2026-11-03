@@ -272,8 +272,143 @@ INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percen
     (@i_nanjangud,    @u_field3, @t0 - INTERVAL 17 DAY,  4, 'LOW');
 
 -- ===========================================================================
+-- Timeline: stock movements in the order they happened
+--
+-- allocation.allocated_at and stock_ledger.changed_at default to
+-- CURRENT_TIMESTAMP, which follows the session clock. Each step sets that clock
+-- to its own moment (SET TIMESTAMP) before calling the procedures, so the
+-- history carries its real dates; nothing writes those columns directly. Steps
+-- run in time order, so the ledger in (changed_at, ledger_id) order is the
+-- order the changes were applied. CURDATE() moves with the clock too, which is
+-- why every expiry date below uses @d0, and why an allocation's expiry check
+-- runs against the date it was made on.
+-- ===========================================================================
+
+-- ---- -45 days: opening stock at every center ------------------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 45 DAY);
+
+-- Bengaluru Central Warehouse (received by its manager)
+CALL sp_add_batch(@r_rice, @c_blr, 'BLR-RICE-01', 2000,  @d0 + INTERVAL 120 DAY, @u_cm_central, @b_blr_rice_01);
+CALL sp_add_batch(@r_dal,  @c_blr, 'BLR-DAL-01',  800,   @d0 + INTERVAL 150 DAY, @u_cm_central, @b_blr_dal_01);
+CALL sp_add_batch(@r_rte,  @c_blr, 'BLR-RTE-01',  600,   @d0 + INTERVAL 5 DAY,   @u_cm_central, @b_blr_rte_01);
+CALL sp_add_batch(@r_inf,  @c_blr, 'BLR-INF-01',  120,   @d0 - INTERVAL 6 DAY,   @u_cm_central, @b_blr_inf_01);
+CALL sp_add_batch(@r_inf,  @c_blr, 'BLR-INF-02',  200,   @d0 + INTERVAL 60 DAY,  @u_cm_central, @b_blr_inf_02);
+CALL sp_add_batch(@r_wtr,  @c_blr, 'BLR-WTR-01',  5000,  @d0 + INTERVAL 3 DAY,   @u_cm_central, @b_blr_wtr_01);
+CALL sp_add_batch(@r_pur,  @c_blr, 'BLR-PUR-01',  1000,  @d0 + INTERVAL 365 DAY, @u_cm_central, @b_blr_pur_01);
+CALL sp_add_batch(@r_ors,  @c_blr, 'BLR-ORS-01',  3000,  @d0 + INTERVAL 2 DAY,   @u_cm_central, @b_blr_ors_01);
+CALL sp_add_batch(@r_ors,  @c_blr, 'BLR-ORS-02',  5000,  @d0 + INTERVAL 300 DAY, @u_cm_central, @b_blr_ors_02);
+CALL sp_add_batch(@r_pcm,  @c_blr, 'BLR-PCM-01',  2000,  @d0 + INTERVAL 400 DAY, @u_cm_central, @b_blr_pcm_01);
+CALL sp_add_batch(@r_amx,  @c_blr, 'BLR-AMX-01',  800,   @d0 + INTERVAL 250 DAY, @u_cm_central, @b_blr_amx_01);
+CALL sp_add_batch(@r_ivf,  @c_blr, 'BLR-IVF-01',  400,   @d0 + INTERVAL 180 DAY, @u_cm_central, @b_blr_ivf_01);
+CALL sp_add_batch(@r_fak,  @c_blr, 'BLR-FAK-01',  300,   @d0 + INTERVAL 500 DAY, @u_cm_central, @b_blr_fak_01);
+CALL sp_add_batch(@r_tarp, @c_blr, 'BLR-TARP-01', 600,   NULL, @u_cm_central, @b_blr_tarp_01);
+CALL sp_add_batch(@r_tent, @c_blr, 'BLR-TENT-01', 80,    NULL, @u_cm_central, @b_blr_tent_01);
+CALL sp_add_batch(@r_blkt, @c_blr, 'BLR-BLKT-01', 2000,  NULL, @u_cm_central, @b_blr_blkt_01);
+CALL sp_add_batch(@r_hyg,  @c_blr, 'BLR-HYG-01',  1000,  NULL, @u_cm_central, @b_blr_hyg_01);
+CALL sp_add_batch(@r_blch, @c_blr, 'BLR-BLCH-01', 500,   @d0 - INTERVAL 2 DAY,   @u_cm_central, @b_blr_blch_01);
+CALL sp_add_batch(@r_net,  @c_blr, 'BLR-NET-01',  1500,  NULL, @u_cm_central, @b_blr_net_01);
+CALL sp_add_batch(@r_lj,   @c_blr, 'BLR-LJ-01',   80,    NULL, @u_cm_central, @b_blr_lj_01);
+CALL sp_add_batch(@r_boat, @c_blr, 'BLR-BOAT-01', 6,     NULL, @u_cm_central, @b_blr_boat_01);
+CALL sp_add_batch(@r_rope, @c_blr, 'BLR-ROPE-01', 150,   NULL, @u_cm_central, @b_blr_rope_01);
+CALL sp_add_batch(@r_str,  @c_blr, 'BLR-STR-01',  60,    NULL, @u_cm_central, @b_blr_str_01);
+CALL sp_add_batch(@r_gen,  @c_blr, 'BLR-GEN-01',  3,     NULL, @u_cm_central, @b_blr_gen_01);
+CALL sp_add_batch(@r_lant, @c_blr, 'BLR-LANT-01', 800,   NULL, @u_cm_central, @b_blr_lant_01);
+CALL sp_add_batch(@r_rain, @c_blr, 'BLR-RAIN-01', 1000,  NULL, @u_cm_central, @b_blr_rain_01);
+
+-- Whitefield Relief Camp (no manager; received by the admin)
+CALL sp_add_batch(@r_rte,  @c_wfd, 'WFD-RTE-01',  400,   @d0 + INTERVAL 30 DAY,  @u_admin, @b_wfd_rte_01);
+CALL sp_add_batch(@r_wtr,  @c_wfd, 'WFD-WTR-01',  3000,  @d0 + INTERVAL 60 DAY,  @u_admin, @b_wfd_wtr_01);
+CALL sp_add_batch(@r_ors,  @c_wfd, 'WFD-ORS-01',  800,   @d0 + INTERVAL 100 DAY, @u_admin, @b_wfd_ors_01);
+CALL sp_add_batch(@r_blkt, @c_wfd, 'WFD-BLKT-01', 500,   NULL, @u_admin, @b_wfd_blkt_01);
+CALL sp_add_batch(@r_hyg,  @c_wfd, 'WFD-HYG-01',  300,   NULL, @u_admin, @b_wfd_hyg_01);
+CALL sp_add_batch(@r_lj,   @c_wfd, 'WFD-LJ-01',   40,    NULL, @u_admin, @b_wfd_lj_01);
+
+-- Madikeri Relief Depot (received by its manager). Short on tarpaulins,
+-- tents and IV fluid, which the farther centers cover.
+CALL sp_add_batch(@r_rice, @c_mdk, 'MDK-RICE-01', 1000,  @d0 + INTERVAL 90 DAY,  @u_cm_kodagu, @b_mdk_rice_01);
+CALL sp_add_batch(@r_dal,  @c_mdk, 'MDK-DAL-01',  400,   @d0 + INTERVAL 120 DAY, @u_cm_kodagu, @b_mdk_dal_01);
+CALL sp_add_batch(@r_rte,  @c_mdk, 'MDK-RTE-01',  300,   @d0,                    @u_cm_kodagu, @b_mdk_rte_01);
+CALL sp_add_batch(@r_wtr,  @c_mdk, 'MDK-WTR-01',  4000,  @d0 + INTERVAL 6 DAY,   @u_cm_kodagu, @b_mdk_wtr_01);
+CALL sp_add_batch(@r_pur,  @c_mdk, 'MDK-PUR-01',  500,   @d0 - INTERVAL 10 DAY,  @u_cm_kodagu, @b_mdk_pur_01);
+CALL sp_add_batch(@r_ors,  @c_mdk, 'MDK-ORS-01',  1000,  @d0 + INTERVAL 200 DAY, @u_cm_kodagu, @b_mdk_ors_01);
+CALL sp_add_batch(@r_pcm,  @c_mdk, 'MDK-PCM-01',  600,   @d0 + INTERVAL 300 DAY, @u_cm_kodagu, @b_mdk_pcm_01);
+CALL sp_add_batch(@r_ivf,  @c_mdk, 'MDK-IVF-01',  40,    @d0 + INTERVAL 150 DAY, @u_cm_kodagu, @b_mdk_ivf_01);
+CALL sp_add_batch(@r_fak,  @c_mdk, 'MDK-FAK-01',  100,   @d0 + INTERVAL 400 DAY, @u_cm_kodagu, @b_mdk_fak_01);
+CALL sp_add_batch(@r_tarp, @c_mdk, 'MDK-TARP-01', 120,   NULL, @u_cm_kodagu, @b_mdk_tarp_01);
+CALL sp_add_batch(@r_tent, @c_mdk, 'MDK-TENT-01', 25,    NULL, @u_cm_kodagu, @b_mdk_tent_01);
+CALL sp_add_batch(@r_blkt, @c_mdk, 'MDK-BLKT-01', 600,   NULL, @u_cm_kodagu, @b_mdk_blkt_01);
+CALL sp_add_batch(@r_net,  @c_mdk, 'MDK-NET-01',  200,   NULL, @u_cm_kodagu, @b_mdk_net_01);
+CALL sp_add_batch(@r_rope, @c_mdk, 'MDK-ROPE-01', 60,    NULL, @u_cm_kodagu, @b_mdk_rope_01);
+CALL sp_add_batch(@r_gen,  @c_mdk, 'MDK-GEN-01',  2,     NULL, @u_cm_kodagu, @b_mdk_gen_01);
+CALL sp_add_batch(@r_lant, @c_mdk, 'MDK-LANT-01', 300,   NULL, @u_cm_kodagu, @b_mdk_lant_01);
+
+-- Kushalnagar Relief Camp (received by the admin)
+CALL sp_add_batch(@r_rice, @c_ksn, 'KSN-RICE-01', 800,   @d0 + INTERVAL 100 DAY, @u_admin, @b_ksn_rice_01);
+CALL sp_add_batch(@r_rte,  @c_ksn, 'KSN-RTE-01',  400,   @d0 + INTERVAL 40 DAY,  @u_admin, @b_ksn_rte_01);
+CALL sp_add_batch(@r_wtr,  @c_ksn, 'KSN-WTR-01',  5000,  @d0 + INTERVAL 120 DAY, @u_admin, @b_ksn_wtr_01);
+CALL sp_add_batch(@r_ors,  @c_ksn, 'KSN-ORS-01',  600,   @d0 + INTERVAL 4 DAY,   @u_admin, @b_ksn_ors_01);
+CALL sp_add_batch(@r_tarp, @c_ksn, 'KSN-TARP-01', 400,   NULL, @u_admin, @b_ksn_tarp_01);
+CALL sp_add_batch(@r_tent, @c_ksn, 'KSN-TENT-01', 40,    NULL, @u_admin, @b_ksn_tent_01);
+CALL sp_add_batch(@r_blkt, @c_ksn, 'KSN-BLKT-01', 800,   NULL, @u_admin, @b_ksn_blkt_01);
+CALL sp_add_batch(@r_hyg,  @c_ksn, 'KSN-HYG-01',  400,   NULL, @u_admin, @b_ksn_hyg_01);
+CALL sp_add_batch(@r_net,  @c_ksn, 'KSN-NET-01',  300,   NULL, @u_admin, @b_ksn_net_01);
+CALL sp_add_batch(@r_gen,  @c_ksn, 'KSN-GEN-01',  1,     NULL, @u_admin, @b_ksn_gen_01);
+CALL sp_add_batch(@r_lant, @c_ksn, 'KSN-LANT-01', 200,   NULL, @u_admin, @b_ksn_lant_01);
+
+-- Mysuru District Hospital (received by the admin)
+CALL sp_add_batch(@r_ors,  @c_mys, 'MYS-ORS-01',  2000,  @d0 + INTERVAL 150 DAY, @u_admin, @b_mys_ors_01);
+CALL sp_add_batch(@r_pcm,  @c_mys, 'MYS-PCM-01',  3000,  @d0 + INTERVAL 200 DAY, @u_admin, @b_mys_pcm_01);
+CALL sp_add_batch(@r_pcm,  @c_mys, 'MYS-PCM-02',  500,   @d0 - INTERVAL 20 DAY,  @u_admin, @b_mys_pcm_02);
+CALL sp_add_batch(@r_amx,  @c_mys, 'MYS-AMX-01',  1500,  @d0 + INTERVAL 180 DAY, @u_admin, @b_mys_amx_01);
+CALL sp_add_batch(@r_ivf,  @c_mys, 'MYS-IVF-01',  600,   @d0 + INTERVAL 7 DAY,   @u_admin, @b_mys_ivf_01);
+CALL sp_add_batch(@r_ivf,  @c_mys, 'MYS-IVF-02',  800,   @d0 + INTERVAL 240 DAY, @u_admin, @b_mys_ivf_02);
+CALL sp_add_batch(@r_fak,  @c_mys, 'MYS-FAK-01',  150,   @d0 + INTERVAL 300 DAY, @u_admin, @b_mys_fak_01);
+CALL sp_add_batch(@r_dns,  @c_mys, 'MYS-DNS-01',  400,   @d0 - INTERVAL 4 DAY,   @u_admin, @b_mys_dns_01);
+CALL sp_add_batch(@r_dns,  @c_mys, 'MYS-DNS-02',  300,   @d0 + INTERVAL 120 DAY, @u_admin, @b_mys_dns_02);
+CALL sp_add_batch(@r_net,  @c_mys, 'MYS-NET-01',  1200,  NULL, @u_admin, @b_mys_net_01);
+CALL sp_add_batch(@r_blch, @c_mys, 'MYS-BLCH-01', 300,   @d0 + INTERVAL 90 DAY,  @u_admin, @b_mys_blch_01);
+CALL sp_add_batch(@r_inf,  @c_mys, 'MYS-INF-01',  100,   @d0 + INTERVAL 30 DAY,  @u_admin, @b_mys_inf_01);
+CALL sp_add_batch(@r_wtr,  @c_mys, 'MYS-WTR-01',  2000,  @d0 + INTERVAL 90 DAY,  @u_admin, @b_mys_wtr_01);
+CALL sp_add_batch(@r_str,  @c_mys, 'MYS-STR-01',  20,    NULL, @u_admin, @b_mys_str_01);
+
+-- ---- -97 hours: flood water reaches the Whitefield camp's store -----------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 97 HOUR);
+CALL sp_adjust_stock(@b_wfd_rte_01, -50, 'WRITE_OFF', @u_admin);
+
+-- ---- -96 hours: flood top-up at the Central Warehouse ---------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 96 HOUR);
+CALL sp_add_batch(@r_rice, @c_blr, 'BLR-RICE-02', 1500,  @d0 + INTERVAL 200 DAY, @u_cm_central, @b_blr_rice_02);
+CALL sp_add_batch(@r_rte,  @c_blr, 'BLR-RTE-02',  1500,  @d0 + INTERVAL 90 DAY,  @u_cm_central, @b_blr_rte_02);
+CALL sp_add_batch(@r_wtr,  @c_blr, 'BLR-WTR-02',  20000, @d0 + INTERVAL 180 DAY, @u_cm_central, @b_blr_wtr_02);
+CALL sp_add_batch(@r_blkt, @c_blr, 'BLR-BLKT-02', 1000,  NULL, @u_cm_central, @b_blr_blkt_02);
+
+-- ---- -90 hours: stock count finds 25 kg of rice short ---------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 90 HOUR);
+CALL sp_adjust_stock(@b_blr_rice_01, -25, 'ADJUSTMENT', @u_cm_central);
+
+-- ---- -48 hours: landslide top-up in Kodagu --------------------------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 48 HOUR);
+CALL sp_add_batch(@r_rte,  @c_mdk, 'MDK-RTE-02',  500,   @d0 + INTERVAL 75 DAY,  @u_cm_kodagu, @b_mdk_rte_02);
+CALL sp_add_batch(@r_wtr,  @c_mdk, 'MDK-WTR-02',  6000,  @d0 + INTERVAL 150 DAY, @u_cm_kodagu, @b_mdk_wtr_02);
+CALL sp_add_batch(@r_pur,  @c_ksn, 'KSN-PUR-01',  300,   @d0 + INTERVAL 200 DAY, @u_admin,     @b_ksn_pur_01);
+
+-- ---- -30 hours: recount finds 20 more blankets at Madikeri ----------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 30 HOUR);
+CALL sp_adjust_stock(@b_mdk_blkt_01, 20, 'ADJUSTMENT', @u_cm_kodagu);
+
+-- ---- -24 hours: expired infant formula written off (40 tins await disposal)
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 24 HOUR);
+CALL sp_adjust_stock(@b_blr_inf_01, -80, 'WRITE_OFF', @u_cm_central);
+
+-- ---- -12 hours: expired bleaching powder written off in full --------------
+SET TIMESTAMP = UNIX_TIMESTAMP(@t0 - INTERVAL 12 HOUR);
+CALL sp_adjust_stock(@b_blr_blch_01, -500, 'WRITE_OFF', @u_cm_central);
+
+-- ===========================================================================
 -- Final state
 -- ===========================================================================
+
+SET TIMESTAMP = DEFAULT;
 
 -- Koramangala's water is receding; Yelahanka is clear (its last request stays open).
 UPDATE emergency_impact SET status = 'STABILISED' WHERE impact_id = @i_koramangala;
