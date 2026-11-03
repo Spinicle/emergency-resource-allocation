@@ -34,11 +34,23 @@ const REQUIRED_ENV = [
   "MONGODB_DB",
 ] as const;
 
+// db:reset runs DROP DATABASE / DROP USER as admin, so it refuses these names.
+const SYSTEM_MYSQL_SCHEMAS = ["mysql", "sys", "information_schema", "performance_schema"];
+const SYSTEM_MONGO_DBS = ["admin", "local", "config"];
+
 type Env = Record<(typeof REQUIRED_ENV)[number], string>;
 
 class ResetError extends Error {}
 
 function loadEnv(): Env {
+  // process.loadEnvFile keeps values already set in the shell, so a stale export
+  // would silently win over .env.local. Stop and name it instead.
+  const fromShell = REQUIRED_ENV.filter((k) => process.env[k] !== undefined);
+  if (fromShell.length > 0) {
+    throw new ResetError(
+      `set in your shell, so they would override .env.local: ${fromShell.join(", ")}. Unset them and rerun.`,
+    );
+  }
   try {
     process.loadEnvFile(".env.local");
   } catch {
@@ -54,6 +66,20 @@ function loadEnv(): Env {
     if (!/^[A-Za-z0-9_]+$/.test(env[k])) {
       throw new ResetError(`${k} may only contain letters, digits and underscores.`);
     }
+  }
+  if (SYSTEM_MYSQL_SCHEMAS.includes(env.MYSQL_DATABASE.toLowerCase())) {
+    throw new ResetError(`MYSQL_DATABASE=${env.MYSQL_DATABASE} is a MySQL system schema; refusing to drop it.`);
+  }
+  if (SYSTEM_MONGO_DBS.includes(env.MONGODB_DB.toLowerCase())) {
+    throw new ResetError(`MONGODB_DB=${env.MONGODB_DB} is a MongoDB system database; refusing to drop it.`);
+  }
+  // The app user is dropped and recreated with database-level grants only.
+  const appUser = env.MYSQL_USER.toLowerCase();
+  if (appUser === "root" || appUser === env.MYSQL_ADMIN_USER.toLowerCase()) {
+    throw new ResetError(
+      "MYSQL_USER must be its own least-privilege account, not root or MYSQL_ADMIN_USER " +
+        "(db:reset drops and recreates it).",
+    );
   }
   return env;
 }
@@ -86,7 +112,21 @@ function writeClientOptionFile(env: Env): { file: string; cleanup: () => void } 
     "",
   ];
   writeFileSync(file, lines.join("\n"), { mode: 0o600 });
-  return { file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+
+  // Remove it on normal return, on any process exit, and on Ctrl+C.
+  const remove = () => rmSync(dir, { recursive: true, force: true });
+  const onSigint = () => {
+    remove();
+    process.exit(130);
+  };
+  process.on("exit", remove);
+  process.once("SIGINT", onSigint);
+  const cleanup = () => {
+    remove();
+    process.off("exit", remove);
+    process.off("SIGINT", onSigint);
+  };
+  return { file, cleanup };
 }
 
 /** Feeds one SQL file to the mysql CLI. Rejects with the CLI's error text. */
