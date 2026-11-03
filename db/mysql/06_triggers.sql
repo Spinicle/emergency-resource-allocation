@@ -344,7 +344,6 @@ CREATE TRIGGER trg_item_bu BEFORE UPDATE ON request_item
 FOR EACH ROW
 BEGIN
     DECLARE v_request_id INT;
-    DECLARE v_allocated DECIMAL(12,2);
     DECLARE v_derived VARCHAR(30);
 
     -- The UPDATE already holds this item's lock; take the request's before any plain read.
@@ -369,9 +368,8 @@ BEGIN
         END IF;
     END IF;
 
-    SET v_allocated = NEW.quantity_allocated;
-    IF NEW.quantity_requested < v_allocated THEN
-        CALL sp_raise(CONCAT('Requested quantity can''t go below the ', v_allocated, ' already allocated'));
+    IF NEW.quantity_requested < NEW.quantity_allocated THEN
+        CALL sp_raise(CONCAT('Requested quantity can''t go below the ', NEW.quantity_allocated, ' already allocated'));
     END IF;
 
     IF OLD.status = 'CANCELLED' THEN
@@ -380,11 +378,11 @@ BEGIN
             CALL sp_raise('A cancelled item can''t be reopened');
         END IF;
     ELSEIF NEW.status = 'CANCELLED' THEN
-        IF v_allocated > 0 THEN
+        IF NEW.quantity_allocated > 0 THEN
             CALL sp_raise('Cancel this item''s allocations first');
         END IF;
     ELSE
-        SET v_derived = fn_item_status_for(NEW.quantity_requested, v_allocated);
+        SET v_derived = fn_item_status_for(NEW.quantity_requested, NEW.quantity_allocated);
         IF NEW.status <=> OLD.status THEN
             -- Status not being changed (e.g. a quantity edit): follow the allocations.
             SET NEW.status = v_derived;
