@@ -86,9 +86,16 @@ export function navFor(role: Role): NavGroup[] {
   );
 }
 
+const NAV_ITEMS: NavItem[] = NAV.flatMap((g) => g.items);
+
 /** The nav item for exactly this path, if it is one. */
 export function findNavItem(path: string): NavItem | undefined {
-  return NAV.flatMap((g) => g.items).find((i) => i.href === path);
+  return NAV_ITEMS.find((i) => i.href === path);
+}
+
+/** The nav item a page belongs to: its own path or one under it (/requests/12 → Requests). */
+export function sectionFor(pathname: string): NavItem | undefined {
+  return NAV_ITEMS.find((i) => isActivePath(pathname, i.href));
 }
 
 /** True when pathname is the link's page or one under it (/requests/12 → /requests). */

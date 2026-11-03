@@ -15,14 +15,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { NAV, ROLE_LABELS, isActivePath } from "@/config/nav";
+import { ROLE_LABELS, sectionFor } from "@/config/nav";
 import type { Session } from "@/lib/auth";
 import { api } from "@/lib/client";
 
 export function AppHeader({ session }: { session: Session }) {
   const pathname = usePathname();
   const router = useRouter();
-  const section = NAV.flatMap((g) => g.items).find((i) => isActivePath(pathname, i.href));
+  const section = sectionFor(pathname);
 
   async function signOut() {
     // P1.6: POST /api/auth/logout clears the session cookie. Until it exists,
