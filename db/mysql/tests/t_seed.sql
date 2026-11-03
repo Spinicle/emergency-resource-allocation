@@ -4,8 +4,9 @@
 -- refusal checks run in a rolled-back transaction).
 --
 -- Part A, invariants: always run, and must hold on any database, however much
--- the app has been used since the seed.
--- Part B, the scenario: exact counts, statuses, queue, suggestions and refusals.
+-- the app has been used since the seed. Only rules no legitimate app action can
+-- break belong here.
+-- Part B, the scenario: exact counts, logins, statuses, queue, suggestions and refusals.
 -- Runs only while the database is untouched since the seed, on the seed day;
 -- otherwise each row is SKIP with the reason (see Part B).
 --
@@ -68,25 +69,12 @@ SET @c = 'CLOSED emergencies without end_time', @e = 0,
     @a = (SELECT COUNT(*) FROM emergency WHERE status = 'CLOSED' AND end_time IS NULL);
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), IF(@a <=> @e, 'PASS', 'FAIL')));
 
--- Logins (HANDOFF 4.8)
-SET @c = 'seeded logins present (of 7)', @e = 7,
-    @a = (SELECT COUNT(*) FROM `user`
-           WHERE email IN ('admin@eras.test', 'coord@eras.test', 'field1@eras.test', 'field2@eras.test',
-                           'field3@eras.test', 'cm.central@eras.test', 'cm.kodagu@eras.test'));
-SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), IF(@a <=> @e, 'PASS', 'FAIL')));
-
-SET @c = 'center managers -> their centers', @e = 'Bengaluru Central Warehouse / Madikeri Relief Depot',
-    @a = CONCAT_WS(' / ',
-           (SELECT c.name FROM `user` u JOIN resource_center c ON c.center_id = u.center_id
-             WHERE u.email = 'cm.central@eras.test'),
-           (SELECT c.name FROM `user` u JOIN resource_center c ON c.center_id = u.center_id
-             WHERE u.email = 'cm.kodagu@eras.test'));
-SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), IF(@a <=> @e, 'PASS', 'FAIL')));
-
-SET @c = 'users whose center_id doesn''t match their role', @e = 0,
+-- Only Center Managers belong to a center. (The reverse isn't an invariant:
+-- deleting a center sets its managers' center_id to NULL through the FK.)
+SET @c = 'users with a center_id who aren''t CENTER_MANAGER', @e = 0,
     @a = (SELECT COUNT(*) FROM `user` u JOIN role r ON r.role_id = u.role_id
            WHERE u.email NOT LIKE 'zz\_%'
-             AND (r.role_name = 'CENTER_MANAGER') <> (u.center_id IS NOT NULL));
+             AND u.center_id IS NOT NULL AND r.role_name <> 'CENTER_MANAGER');
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), IF(@a <=> @e, 'PASS', 'FAIL')));
 
 SET @c = 'password hashes not bcrypt-shaped', @e = 0,
@@ -107,7 +95,9 @@ SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e
 -- Status-only edits that leave no timestamp (dispatch/deliver, a request
 -- cancel, admin edits) aren't detected; run db:reset before db:test after
 -- using the app. Observations are checked as "at least 38" because P2.3's seed
--- adds older ones (HANDOFF P2.3).
+-- adds older ones: only before each impact's second-latest seeded observation
+-- and none on KDG-NAPOKLU (HANDOFF P2.3), so query 7 and the no-observation
+-- queue rows don't change.
 -- ===========================================================================
 SET @section = 'B scenario';
 
@@ -178,6 +168,27 @@ SET @n = (SELECT COUNT(*) FROM impact_observation o
             JOIN emergency e         ON e.emergency_id = ei.emergency_id
            WHERE e.name NOT LIKE 'zz\_%');
 SET @c = 'observations', @e = 'at least 38', @a = IF(@n >= 38, 'at least 38', @n);
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), IF(@scenario, CAST(@a AS CHAR), @skip), IF(@scenario, IF(@a <=> @e, 'PASS', 'FAIL'), 'SKIP')));
+
+-- ---- logins (HANDOFF 4.8); admins may delete or reassign users later ----
+SET @c = 'seeded logins present (of 7)', @e = 7,
+    @a = (SELECT COUNT(*) FROM `user`
+           WHERE email IN ('admin@eras.test', 'coord@eras.test', 'field1@eras.test', 'field2@eras.test',
+                           'field3@eras.test', 'cm.central@eras.test', 'cm.kodagu@eras.test'));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), IF(@scenario, CAST(@a AS CHAR), @skip), IF(@scenario, IF(@a <=> @e, 'PASS', 'FAIL'), 'SKIP')));
+
+SET @c = 'center managers -> their centers', @e = 'Bengaluru Central Warehouse / Madikeri Relief Depot',
+    @a = CONCAT_WS(' / ',
+           (SELECT c.name FROM `user` u JOIN resource_center c ON c.center_id = u.center_id
+             WHERE u.email = 'cm.central@eras.test'),
+           (SELECT c.name FROM `user` u JOIN resource_center c ON c.center_id = u.center_id
+             WHERE u.email = 'cm.kodagu@eras.test'));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), IF(@scenario, CAST(@a AS CHAR), @skip), IF(@scenario, IF(@a <=> @e, 'PASS', 'FAIL'), 'SKIP')));
+
+SET @c = 'CENTER_MANAGERs without a center', @e = 0,
+    @a = (SELECT COUNT(*) FROM `user` u JOIN role r ON r.role_id = u.role_id
+           WHERE u.email NOT LIKE 'zz\_%'
+             AND r.role_name = 'CENTER_MANAGER' AND u.center_id IS NULL);
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), IF(@scenario, CAST(@a AS CHAR), @skip), IF(@scenario, IF(@a <=> @e, 'PASS', 'FAIL'), 'SKIP')));
 
 SET @c = 'inactive users', @e = 'field3@eras.test',
