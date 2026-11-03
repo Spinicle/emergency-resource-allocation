@@ -8,8 +8,8 @@
  *   2. two allocations to one item, from two batches that together exceed it
  *   3. an allocation races a cancel on the same item
  *   4. a request cancel (the P2.2 pattern) races an allocation to one of its items
- *   6. allocations to two different items of one request at once
- *   plus 20 repeats of 1 with no blocker (5).
+ *   5. allocations to two different items of one request at once
+ *   6. 20 repeats of 1 with no blocker
  * Nothing may deadlock (error 1213), and stock and ledger must agree afterwards.
  *
  * It creates zz_race rows and removes them afterwards, and first removes any
@@ -105,12 +105,12 @@ async function race(
   return Promise.all([a, b]);
 }
 
-async function newBatch(conn: Connection, f: Fixture, qty: number): Promise<number> {
+async function newBatch(conn: Connection, f: Fixture, qty: number, resourceId = f.resourceId): Promise<number> {
   batchNo += 1;
   return insert(
     conn,
     "INSERT INTO stock (resource_id, center_id, batch_code, quantity_available) VALUES (?, ?, ?, ?)",
-    [f.resourceId, f.centerId, `zz_race_B${batchNo}`, qty],
+    [resourceId, f.centerId, `zz_race_B${batchNo}`, qty],
   );
 }
 
@@ -376,11 +376,7 @@ async function twoItemsOneRequest(blocker: Connection, a: Connection, b: Connect
   const request = await newRequest(blocker, f);
   const item1 = await newItem(blocker, request, f.resourceId, 10);
   const item2 = await newItem(blocker, request, f.otherResourceId, 10);
-  const stock2 = await insert(
-    blocker,
-    "INSERT INTO stock (resource_id, center_id, batch_code, quantity_available) VALUES (?, ?, 'zz_race_OTHER', 100)",
-    [f.otherResourceId, f.centerId],
-  );
+  const stock2 = await newBatch(blocker, f, 100, f.otherResourceId);
   const [x, y] = await race(
     blocker,
     "SELECT request_id FROM resource_request WHERE request_id = ? FOR UPDATE",
@@ -389,9 +385,9 @@ async function twoItemsOneRequest(blocker: Connection, a: Connection, b: Connect
     () => allocate(b, item2, stock2, 10, f.userId),
   );
   const outcomes = `${describeOutcome(x)} | ${describeOutcome(y)}`;
-  check("6. two items of one request at once: no deadlock", ![x, y].some((o) => !o.ok && o.errno === DEADLOCK), outcomes);
+  check("5. two items of one request at once: no deadlock", ![x, y].some((o) => !o.ok && o.errno === DEADLOCK), outcomes);
   const status = await value<string>(blocker, "SELECT status FROM resource_request WHERE request_id = ?", [request]);
-  check("6. both succeed and the request is FULFILLED", x.ok && y.ok && status === "FULFILLED", `${outcomes}; request ${status}`);
+  check("5. both succeed and the request is FULFILLED", x.ok && y.ok && status === "FULFILLED", `${outcomes}; request ${status}`);
 }
 
 async function repeatedLastUnits(blocker: Connection, a: Connection, b: Connection, f: Fixture): Promise<void> {
@@ -412,7 +408,7 @@ async function repeatedLastUnits(blocker: Connection, a: Connection, b: Connecti
       bad.push(`run ${i}: ${describeOutcome(x)} | ${describeOutcome(y)}, stock ${left}`);
     }
   }
-  check(`5. ${runs} unblocked races for the last 50 units`, bad.length === 0, bad.join("; "));
+  check(`6. ${runs} unblocked races for the last 50 units`, bad.length === 0, bad.join("; "));
 }
 
 async function main(): Promise<void> {
