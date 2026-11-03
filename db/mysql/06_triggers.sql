@@ -201,21 +201,9 @@ DROP TRIGGER IF EXISTS trg_allocation_ai $$
 CREATE TRIGGER trg_allocation_ai AFTER INSERT ON allocation
 FOR EACH ROW
 BEGIN
-    -- The ledger variables are restored afterwards, even on error.
-    DECLARE v_prev_reason VARCHAR(30) DEFAULT @ledger_reason;
-    DECLARE v_prev_alloc INT DEFAULT @ledger_alloc;
-    DECLARE v_prev_user INT DEFAULT @ledger_user;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc, @ledger_user = v_prev_user;
-        RESIGNAL;
-    END;
-
-    SET @ledger_reason = 'ALLOCATION', @ledger_alloc = NEW.allocation_id, @ledger_user = NEW.user_id;
-    UPDATE stock SET quantity_available = quantity_available - NEW.quantity_allocated
-     WHERE stock_id = NEW.stock_id;
-    SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc, @ledger_user = v_prev_user;
-
+    DECLARE v_rows INT;
+    CALL sp_change_stock(NEW.stock_id, -NEW.quantity_allocated, 'ALLOCATION',
+                         NEW.allocation_id, NEW.user_id, v_rows);
     CALL sp_add_item_allocated(NEW.request_item_id, NEW.quantity_allocated);
 END $$
 
@@ -255,14 +243,7 @@ DROP TRIGGER IF EXISTS trg_allocation_au $$
 CREATE TRIGGER trg_allocation_au AFTER UPDATE ON allocation
 FOR EACH ROW
 BEGIN
-    DECLARE v_request_id INT;
-    DECLARE v_prev_reason VARCHAR(30) DEFAULT @ledger_reason;
-    DECLARE v_prev_alloc INT DEFAULT @ledger_alloc;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc;
-        RESIGNAL;
-    END;
+    DECLARE v_request_id, v_rows INT;
 
     IF NEW.status = 'CANCELLED' THEN
         -- The UPDATE holds the allocation row; now item -> request (-> stock below).
@@ -272,11 +253,8 @@ BEGIN
           FROM resource_request WHERE request_id = v_request_id FOR UPDATE;
 
         -- changed_by is whoever cancelled (@ledger_user, set by sp_cancel_allocation).
-        SET @ledger_reason = 'ALLOCATION_CANCELLED', @ledger_alloc = NEW.allocation_id;
-        UPDATE stock SET quantity_available = quantity_available + NEW.quantity_allocated
-         WHERE stock_id = NEW.stock_id;
-        SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc;
-
+        CALL sp_change_stock(NEW.stock_id, NEW.quantity_allocated, 'ALLOCATION_CANCELLED',
+                             NEW.allocation_id, @ledger_user, v_rows);
         CALL sp_add_item_allocated(NEW.request_item_id, -NEW.quantity_allocated);
     END IF;
 END $$
@@ -314,8 +292,9 @@ BEGIN
     END IF;
 END $$
 
--- Invariant 1: every quantity change logs one row. Without ledger variables
--- (a console UPDATE) the reason is ADJUSTMENT and changed_by is NULL.
+-- Invariant 1: every quantity change logs one row. The reason, allocation and
+-- user come from sp_change_stock (05_procedures.sql); without them (a console
+-- UPDATE) the reason is ADJUSTMENT and changed_by is NULL.
 DROP TRIGGER IF EXISTS trg_stock_au $$
 CREATE TRIGGER trg_stock_au AFTER UPDATE ON stock
 FOR EACH ROW

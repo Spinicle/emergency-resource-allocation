@@ -12,8 +12,10 @@
 -- of a transaction, one item per transaction (see HANDOFF 4.4).
 --
 -- The ledger session variables (@ledger_reason, @ledger_alloc, @ledger_user) are
--- set only here and in the triggers. Procedures clear them when done, including
--- in their error handlers, because pooled connections are reused.
+-- set only here: sp_change_stock sets all three around its UPDATE and restores
+-- them; sp_cancel_allocation and sp_add_batch set @ledger_user (who did it) and
+-- clear it. All of them undo their changes in error handlers too, because
+-- pooled connections are reused.
 --
 -- All procedures run with the caller's privileges (SQL SECURITY INVOKER).
 
@@ -137,9 +139,44 @@ BEGIN
 END $$
 
 -- ---------------------------------------------------------------------------
+-- sp_change_stock: the one place a batch's quantity changes with a ledger
+-- reason, allocation and user. It sets @ledger_reason / @ledger_alloc /
+-- @ledger_user for trg_stock_au, runs one UPDATE by p_delta, and restores the
+-- variables afterwards, even on error. p_rows is 0 if the batch doesn't exist.
+-- Used by sp_adjust_stock and the allocation triggers.
+-- ---------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS sp_change_stock $$
+CREATE PROCEDURE sp_change_stock(
+    IN  p_stock      INT,
+    IN  p_delta      DECIMAL(12,2),
+    IN  p_reason     VARCHAR(30),
+    IN  p_allocation INT,
+    IN  p_user       INT,
+    OUT p_rows       INT
+)
+MODIFIES SQL DATA
+SQL SECURITY INVOKER
+COMMENT 'Change a batch quantity with a ledger reason, allocation and user'
+BEGIN
+    DECLARE v_prev_reason VARCHAR(30) DEFAULT @ledger_reason;
+    DECLARE v_prev_alloc INT DEFAULT @ledger_alloc;
+    DECLARE v_prev_user INT DEFAULT @ledger_user;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc, @ledger_user = v_prev_user;
+        RESIGNAL;
+    END;
+
+    SET @ledger_reason = p_reason, @ledger_alloc = p_allocation, @ledger_user = p_user;
+    UPDATE stock SET quantity_available = quantity_available + p_delta WHERE stock_id = p_stock;
+    SET p_rows = ROW_COUNT();
+    SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc, @ledger_user = v_prev_user;
+END $$
+
+-- ---------------------------------------------------------------------------
 -- sp_adjust_stock: correct a batch by p_delta (ADJUSTMENT) or write stock off
--- (WRITE_OFF, which must reduce it). One UPDATE; trg_stock_bu refuses a
--- negative result, trg_stock_au writes the ledger row.
+-- (WRITE_OFF, which must reduce it). One UPDATE (through sp_change_stock);
+-- trg_stock_bu refuses a negative result, trg_stock_au writes the ledger row.
 -- ---------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS sp_adjust_stock $$
 CREATE PROCEDURE sp_adjust_stock(
@@ -153,11 +190,6 @@ SQL SECURITY INVOKER
 COMMENT 'Adjust or write off a batch (ledger ADJUSTMENT / WRITE_OFF)'
 BEGIN
     DECLARE v_rows INT;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        SET @ledger_reason = NULL, @ledger_user = NULL;
-        RESIGNAL;
-    END;
 
     IF p_reason IS NULL OR p_reason NOT IN ('ADJUSTMENT', 'WRITE_OFF') THEN
         CALL sp_raise('Reason must be ADJUSTMENT or WRITE_OFF');
@@ -169,10 +201,7 @@ BEGIN
         CALL sp_raise('A write-off must reduce the quantity');
     END IF;
 
-    SET @ledger_reason = p_reason, @ledger_user = p_user;
-    UPDATE stock SET quantity_available = quantity_available + p_delta WHERE stock_id = p_stock;
-    SET v_rows = ROW_COUNT();
-    SET @ledger_reason = NULL, @ledger_user = NULL;
+    CALL sp_change_stock(p_stock, p_delta, p_reason, NULL, p_user, v_rows);
     IF v_rows = 0 THEN
         CALL sp_raise(CONCAT_WS(' ', 'Batch', p_stock, 'not found'));
     END IF;
