@@ -80,10 +80,20 @@ function checkValues(): void {
 /** Runs a script's main(); on failure prints one line and sets exit code 1. */
 export function runScript(name: string, main: () => Promise<void>): void {
   main().catch((err: unknown) => {
-    // Only the message: mysql2 errors also carry the SQL text, which can include a password.
-    const e = err as { message?: string; code?: string };
-    const detail = err instanceof ScriptError ? e.message : `${e.code ? `${e.code}: ` : ""}${e.message}`;
-    console.error(`\n${name} failed: ${detail}`);
+    console.error(`\n${name} failed: ${describe(err)}`);
     process.exitCode = 1;
   });
+}
+
+/**
+ * One line for a failure. Only the message (plus a driver error code): mysql2
+ * errors also carry the SQL text, which can include a password.
+ */
+function describe(err: unknown): string {
+  if (err instanceof ScriptError) return err.message;
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code ? `${code}: ${err.message}` : err.message;
+  }
+  return String(err);
 }
