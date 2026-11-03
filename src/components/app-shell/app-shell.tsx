@@ -21,7 +21,8 @@ export function AppShell({
         <AppSidebar role={session.role} />
         <SidebarInset className="min-w-0">
           <AppHeader session={session} />
-          <main className="flex-1 p-4 md:p-6">{children}</main>
+          {/* SidebarInset is already the page's <main>. */}
+          <div className="flex-1 p-4 md:p-6">{children}</div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
