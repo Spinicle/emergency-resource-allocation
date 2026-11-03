@@ -16,6 +16,9 @@
 -- Check pattern:
 --   SET @c = '<check>', @e = <expected>, @a = <actual>;
 --   SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+-- The second line is repeated on purpose. Don't turn it into a PREPAREd statement:
+-- MySQL fixes user-variable types at PREPARE time, so @a <=> @e would compare
+-- every check as the first check's type (e.g. 'abc' <=> 'abd' is true as DECIMAL).
 
 SET @results = JSON_ARRAY();
 
@@ -92,13 +95,18 @@ SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e
 -- ===========================================================================
 SET @section = 'P1.2 views';
 
-SET @counts_before = CONCAT_WS(',',
+-- Row counts of every table, as one string. Prepared once, run before and after
+-- the rolled-back fixture. (Safe to prepare: it reads no user variables, whose
+-- types MySQL would fix at PREPARE time.)
+PREPARE snapshot_counts FROM 'SET @counts = CONCAT_WS('','',
     (SELECT COUNT(*) FROM role), (SELECT COUNT(*) FROM `user`), (SELECT COUNT(*) FROM location),
     (SELECT COUNT(*) FROM emergency), (SELECT COUNT(*) FROM emergency_impact),
     (SELECT COUNT(*) FROM impact_observation), (SELECT COUNT(*) FROM resource),
     (SELECT COUNT(*) FROM resource_center), (SELECT COUNT(*) FROM stock),
     (SELECT COUNT(*) FROM stock_ledger), (SELECT COUNT(*) FROM resource_request),
-    (SELECT COUNT(*) FROM request_item), (SELECT COUNT(*) FROM allocation));
+    (SELECT COUNT(*) FROM request_item), (SELECT COUNT(*) FROM allocation))';
+EXECUTE snapshot_counts;
+SET @counts_before = @counts;
 
 START TRANSACTION;
 SET @now = NOW();
@@ -339,14 +347,9 @@ SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e
 ROLLBACK;
 
 -- ---- after rollback ----
-SET @counts_after = CONCAT_WS(',',
-    (SELECT COUNT(*) FROM role), (SELECT COUNT(*) FROM `user`), (SELECT COUNT(*) FROM location),
-    (SELECT COUNT(*) FROM emergency), (SELECT COUNT(*) FROM emergency_impact),
-    (SELECT COUNT(*) FROM impact_observation), (SELECT COUNT(*) FROM resource),
-    (SELECT COUNT(*) FROM resource_center), (SELECT COUNT(*) FROM stock),
-    (SELECT COUNT(*) FROM stock_ledger), (SELECT COUNT(*) FROM resource_request),
-    (SELECT COUNT(*) FROM request_item), (SELECT COUNT(*) FROM allocation));
-SET @c = 'row counts unchanged after ROLLBACK', @e = @counts_before, @a = @counts_after;
+EXECUTE snapshot_counts;
+DEALLOCATE PREPARE snapshot_counts;
+SET @c = 'row counts unchanged after ROLLBACK', @e = @counts_before, @a = @counts;
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
 -- ===========================================================================
