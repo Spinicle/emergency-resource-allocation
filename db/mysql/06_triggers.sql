@@ -15,15 +15,16 @@
 --   5. Item status is derived from its allocations (CANCELLED stays CANCELLED).
 --   6. Request status is rolled up from its items.
 --
--- Locking. Checks and recomputes lock rows FOR UPDATE in one order before their
--- first plain read, so the plain reads see everything committed before the locks:
+-- Locking. Checks and recomputes lock rows FOR UPDATE in one order before they
+-- read anything else:
 --   new allocation:   request_item -> resource_request -> stock (center, emergency FOR SHARE)
 --   cancel:           allocation row (taken by the UPDATE) -> request_item -> resource_request -> stock
 --   item change:      request_item (taken by the UPDATE) -> resource_request
--- Allocation rows are never read with a locking read: that would take gap locks,
--- and two allocations to different new items sharing a gap would deadlock.
--- The plain SUM is still current because every writer of an item's allocations
--- holds that item's lock until it commits.
+-- The allocate and cancel paths never read other allocation rows: what an item
+-- has allocated is request_item.quantity_allocated, read from the locked item
+-- row. (Summing allocation rows here would take shared locks on them, and an
+-- allocation would then wait on a row a concurrent cancel holds while that
+-- cancel waits for the item: a deadlock.)
 --
 -- No trigger modifies allocation or a table of the statement that fired it
 -- (MySQL error 1442). Triggers run as their DEFINER (the db:reset admin).
@@ -34,7 +35,9 @@ DELIMITER $$
 -- Status helpers: one definition shared by the triggers and their guards
 -- ===========================================================================
 
--- Sum of an item's allocations that aren't CANCELLED.
+-- Sum of an item's allocations that aren't CANCELLED: the definition that
+-- request_item.quantity_allocated must always equal. The triggers don't call it
+-- (see Locking above); tests and reconciliation queries do.
 DROP FUNCTION IF EXISTS fn_item_allocated $$
 CREATE FUNCTION fn_item_allocated(p_item_id INT)
 RETURNS DECIMAL(12,2)
@@ -91,24 +94,27 @@ BEGIN
     END;
 END $$
 
--- Rewrite an item's status from its allocations (unless CANCELLED). Called by
--- the allocation triggers, which already hold the item's lock.
-DROP PROCEDURE IF EXISTS sp_sync_item_status $$
-CREATE PROCEDURE sp_sync_item_status(IN p_item_id INT)
+-- Move an item's quantity_allocated by p_delta. Called only by the allocation
+-- triggers, which already hold the item's lock. @item_alloc_sync tells
+-- trg_item_bu that this change is theirs (hand edits are refused); it is
+-- restored afterwards, even on error. trg_item_bu then derives the status.
+DROP PROCEDURE IF EXISTS sp_add_item_allocated $$
+CREATE PROCEDURE sp_add_item_allocated(IN p_item_id INT, IN p_delta DECIMAL(12,2))
 MODIFIES SQL DATA
 SQL SECURITY INVOKER
-COMMENT 'Trigger helper: recompute request_item.status'
+COMMENT 'Trigger helper: change request_item.quantity_allocated'
 BEGIN
-    DECLARE v_requested DECIMAL(12,2);
-    DECLARE v_status, v_new VARCHAR(30);
-    SELECT quantity_requested, status INTO v_requested, v_status
-      FROM request_item WHERE request_item_id = p_item_id FOR UPDATE;
-    IF v_status <> 'CANCELLED' THEN
-        SET v_new = fn_item_status_for(v_requested, fn_item_allocated(p_item_id));
-        IF v_new <> v_status THEN
-            UPDATE request_item SET status = v_new WHERE request_item_id = p_item_id;
-        END IF;
-    END IF;
+    DECLARE v_prev_sync INT DEFAULT @item_alloc_sync;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        SET @item_alloc_sync = v_prev_sync;
+        RESIGNAL;
+    END;
+
+    SET @item_alloc_sync = p_item_id;
+    UPDATE request_item SET quantity_allocated = quantity_allocated + p_delta
+     WHERE request_item_id = p_item_id;
+    SET @item_alloc_sync = v_prev_sync;
 END $$
 
 -- Rewrite a request's status from its items. Called by the item triggers,
@@ -141,8 +147,8 @@ BEGIN
     DECLARE v_expiry DATE;
 
     -- Locks first: item -> request -> stock, then center and emergency shared.
-    SELECT status, quantity_requested, resource_id, request_id
-      INTO v_item_status, v_requested, v_item_resource, v_request_id
+    SELECT status, quantity_requested, quantity_allocated, resource_id, request_id
+      INTO v_item_status, v_requested, v_allocated, v_item_resource, v_request_id
       FROM request_item WHERE request_item_id = NEW.request_item_id FOR UPDATE;
     IF v_item_status IS NULL THEN
         CALL sp_raise(CONCAT_WS(' ', 'Request item', NEW.request_item_id, 'not found'));
@@ -185,7 +191,6 @@ BEGIN
         CALL sp_raise(CONCAT('Batch expired on ', v_expiry));
     END IF;
 
-    SET v_allocated = fn_item_allocated(NEW.request_item_id);
     IF v_allocated + NEW.quantity_allocated > v_requested THEN
         CALL sp_raise(CONCAT('Only ', v_requested - v_allocated, ' left to allocate for this item'));
     END IF;
@@ -211,7 +216,7 @@ BEGIN
      WHERE stock_id = NEW.stock_id;
     SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc, @ledger_user = v_prev_user;
 
-    CALL sp_sync_item_status(NEW.request_item_id);
+    CALL sp_add_item_allocated(NEW.request_item_id, NEW.quantity_allocated);
 END $$
 
 -- Invariant 3: fixed columns and allowed transitions. Every UPDATE of an
@@ -272,7 +277,7 @@ BEGIN
          WHERE stock_id = NEW.stock_id;
         SET @ledger_reason = v_prev_reason, @ledger_alloc = v_prev_alloc;
 
-        CALL sp_sync_item_status(NEW.request_item_id);
+        CALL sp_add_item_allocated(NEW.request_item_id, -NEW.quantity_allocated);
     END IF;
 END $$
 
@@ -289,6 +294,8 @@ BEGIN
     IF NEW.quantity_available < 0 THEN
         CALL sp_raise('Insufficient stock in this batch');
     END IF;
+    -- Reads allocations only when the identity really changes, so the quantity
+    -- updates on the allocate and cancel paths never do.
     IF NOT (NEW.resource_id <=> OLD.resource_id) OR NOT (NEW.center_id <=> OLD.center_id) THEN
         IF EXISTS (SELECT 1 FROM allocation WHERE stock_id = OLD.stock_id) THEN
             CALL sp_raise('A batch''s resource and center can''t change once it has allocations');
@@ -339,6 +346,9 @@ BEGIN
     IF NOT (NEW.status <=> 'PENDING') THEN
         CALL sp_raise('New items start PENDING');
     END IF;
+    IF NOT (NEW.quantity_allocated <=> 0) THEN
+        CALL sp_raise('New items start with nothing allocated');
+    END IF;
 END $$
 
 -- Invariant 6.
@@ -365,13 +375,22 @@ BEGIN
     IF NOT (NEW.request_id <=> OLD.request_id) THEN
         CALL sp_raise('An item can''t move to another request');
     END IF;
+    -- quantity_allocated changes only through sp_add_item_allocated (the
+    -- allocation triggers). Checked with a flag, not by summing allocations,
+    -- which would take shared locks on them (see Locking above).
+    IF NOT (NEW.quantity_allocated <=> OLD.quantity_allocated)
+       AND NOT (@item_alloc_sync <=> OLD.request_item_id) THEN
+        CALL sp_raise('quantity_allocated is kept by the allocation triggers');
+    END IF;
+    -- Reads allocations only when the resource really changes (never on the
+    -- allocate or cancel paths).
     IF NOT (NEW.resource_id <=> OLD.resource_id) THEN
         IF EXISTS (SELECT 1 FROM allocation WHERE request_item_id = OLD.request_item_id) THEN
             CALL sp_raise('An item''s resource can''t change once it has allocations');
         END IF;
     END IF;
 
-    SET v_allocated = fn_item_allocated(OLD.request_item_id);
+    SET v_allocated = NEW.quantity_allocated;
     IF NEW.quantity_requested < v_allocated THEN
         CALL sp_raise(CONCAT('Requested quantity can''t go below the ', v_allocated, ' already allocated'));
     END IF;

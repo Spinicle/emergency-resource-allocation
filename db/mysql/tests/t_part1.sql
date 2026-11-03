@@ -326,6 +326,19 @@ SET @c = 'rows where priority_score <> fn_priority_score(item)', @e = 0,
              AND NOT (priority_score <=> fn_priority_score(request_item_id)));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
+SET @c = 'queue''s quantity_allocated = request_item.quantity_allocated (mismatches)', @e = 0,
+    @a = (SELECT COUNT(*) FROM v_priority_queue q
+            JOIN request_item ri ON ri.request_item_id = q.request_item_id
+           WHERE FIND_IN_SET(q.request_item_id, @fixture_items)
+             AND q.quantity_allocated <> ri.quantity_allocated);
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
+SET @c = 'quantity_allocated = sum of allocations, every item (mismatches)', @e = 0,
+    @a = (SELECT COUNT(*) FROM request_item
+           WHERE FIND_IN_SET(request_item_id, @fixture_items)
+             AND quantity_allocated <> fn_item_allocated(request_item_id));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
 -- ---- v_stock_availability ----
 SET @c = 'availability rows for fixture centers', @e = 4,
     @a = (SELECT COUNT(*) FROM v_stock_availability WHERE center_id IN (@c_main, @c_ltd));
@@ -766,6 +779,20 @@ SET @c = 'a quantity edit keeps a cancelled item CANCELLED', @e = 'CANCELLED/7.0
     @a = (SELECT CONCAT_WS('/', status, quantity_requested) FROM request_item WHERE request_item_id = @g2);
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
+CALL sp_test_expect(CONCAT('UPDATE request_item SET quantity_allocated = 0 WHERE request_item_id = ', @g1), @errno, @msg);
+SET @c = 'hand edit of quantity_allocated', @e = '1644: quantity_allocated is kept by the allocation triggers',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+CALL sp_test_expect(CONCAT('INSERT INTO request_item (request_id, resource_id, quantity_requested, quantity_allocated, urgency) VALUES (',
+                           @req2, ', ', @r_tent, ', 5, 5, ''LOW'')'), @errno, @msg);
+SET @c = 'new item inserted with quantity_allocated 5', @e = '1644: New items start with nothing allocated',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+SET @c = 'ledger and item-sync variables clear', @e = '-/-/-/-',
+    @a = CONCAT_WS('/', COALESCE(@ledger_reason, '-'), COALESCE(@ledger_alloc, '-'), COALESCE(@ledger_user, '-'),
+                        COALESCE(@item_alloc_sync, '-'));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
 -- ---- request rollup and guard ----
 SET @c = 'request with untouched items is OPEN', @e = 'OPEN',
     @a = (SELECT status FROM resource_request WHERE request_id = @req3);
@@ -856,6 +883,21 @@ SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e
 -- (This call also prints its result set.)
 CALL sp_test_expect(CONCAT('CALL sp_suggest_batches(', @i_kit, ')'), @errno, @msg);
 SET @c = 'sp_suggest_batches runs', @e = '0: ', @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
+-- ---- every fixture item: the kept total matches its allocations ----
+SET @c = 'quantity_allocated = sum of allocations, every item (mismatches)', @e = 0,
+    @a = (SELECT COUNT(*) FROM request_item ri
+            JOIN resource_request rr ON rr.request_id = ri.request_id
+           WHERE rr.user_id = @u1
+             AND ri.quantity_allocated <> fn_item_allocated(ri.request_item_id));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+SET @c = 'queue''s quantity_allocated = request_item.quantity_allocated (mismatches)', @e = 0,
+    @a = (SELECT COUNT(*) FROM v_priority_queue q
+            JOIN request_item ri ON ri.request_item_id = q.request_item_id
+            JOIN resource_request rr ON rr.request_id = ri.request_id
+           WHERE rr.user_id = @u1
+             AND q.quantity_allocated <> ri.quantity_allocated);
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
 -- ---- T18: the ledger agrees with the stock, for every fixture batch ----

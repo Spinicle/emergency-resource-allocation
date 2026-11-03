@@ -73,6 +73,16 @@ ALTER TABLE request_item
     ADD CONSTRAINT chk_request_item_status
         CHECK (status IN ('PENDING', 'PARTIAL', 'FULFILLED', 'CANCELLED'));
 
+-- quantity_allocated: sum of the item's allocations that aren't CANCELLED. Kept
+-- by the allocation triggers only (06_triggers.sql); hand edits are refused.
+-- The rules read it from the locked item row instead of summing allocation
+-- rows, because inside a trigger that sum is a locking read and deadlocks with
+-- a concurrent cancel. The CHECK is the backstop behind the triggers' messages.
+ALTER TABLE request_item
+    ADD COLUMN quantity_allocated DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER quantity_requested,
+    ADD CONSTRAINT chk_request_item_quantity_allocated
+        CHECK (quantity_allocated BETWEEN 0 AND quantity_requested);
+
 -- New allocations start RESERVED; transitions are enforced by trigger.
 ALTER TABLE allocation
     ALTER COLUMN status SET DEFAULT 'RESERVED',
