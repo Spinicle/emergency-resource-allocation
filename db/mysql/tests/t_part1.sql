@@ -196,6 +196,10 @@ SET @stock_food = LAST_INSERT_ID();
 -- Med kits at the limited depot: the pair's only batch is expired.
 INSERT INTO stock (resource_id, center_id, batch_code, quantity_available, expiry_date)
 VALUES (@res_med, @c_ltd, 'zz_t12_M_EXPIRED', 25, CURDATE() - INTERVAL 2 DAY);
+-- Med kits at the main warehouse, used up by the FULFILLED item.
+INSERT INTO stock (resource_id, center_id, batch_code, quantity_available, expiry_date)
+VALUES (@res_med, @c_main, 'zz_t12_M_MAIN', 10, NULL);
+SET @stock_med = LAST_INSERT_ID();
 
 -- Request with an observed impact: waited 24 h, due in 3 h (well inside D's 6 h band).
 INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
@@ -204,21 +208,23 @@ SET @req_main = LAST_INSERT_ID();
 INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
 VALUES (@req_main, @res_water, 100, 'CRITICAL');
 SET @it_crit = LAST_INSERT_ID();
--- PARTIAL/FULFILLED/CANCELLED are set directly here because P1.3's triggers don't
--- exist yet. Once they do, allocations go through sp_allocate / sp_cancel_allocation.
-INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency, status)
-VALUES (@req_main, @res_food, 100, 'HIGH', 'PARTIAL');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
+VALUES (@req_main, @res_food, 100, 'HIGH');
 SET @it_partial = LAST_INSERT_ID();
-INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency, status)
-VALUES (@req_main, @res_med, 10, 'LOW', 'FULFILLED');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
+VALUES (@req_main, @res_med, 10, 'LOW');
 SET @it_done = LAST_INSERT_ID();
-INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency, status)
-VALUES (@req_main, @res_tarp, 5, 'MEDIUM', 'CANCELLED');
+INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
+VALUES (@req_main, @res_tarp, 5, 'MEDIUM');
 SET @it_cancel = LAST_INSERT_ID();
--- 30 RESERVED counts as allocated; 50 CANCELLED doesn't.
-INSERT INTO allocation (request_item_id, stock_id, user_id, quantity_allocated, status)
-VALUES (@it_partial, @stock_food, @user, 30, 'RESERVED'),
-       (@it_partial, @stock_food, @user, 50, 'CANCELLED');
+-- Statuses come from the triggers (P1.3). PARTIAL: 30 stays RESERVED, 50 is
+-- cancelled (food 100 -> 70). FULFILLED: all 10 med kits. CANCELLED: by hand,
+-- allowed because it has no allocations.
+CALL sp_allocate(@it_partial, @stock_food, 30, @user, @alloc_keep);
+CALL sp_allocate(@it_partial, @stock_food, 50, @user, @alloc_undo);
+CALL sp_cancel_allocation(@alloc_undo, @user);
+CALL sp_allocate(@it_done, @stock_med, 10, @user, @alloc_done);
+UPDATE request_item SET status = 'CANCELLED' WHERE request_item_id = @it_cancel;
 
 -- Request on an impact with no observations, just made, no deadline.
 INSERT INTO resource_request (impact_id, user_id, requested_at, required_by, description)
@@ -228,13 +234,15 @@ INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
 VALUES (@req_noobs, @res_water, 50, 'MEDIUM');
 SET @it_noobs = LAST_INSERT_ID();
 
--- Cancelled request: its PENDING item is excluded.
-INSERT INTO resource_request (impact_id, user_id, requested_at, status, description)
-VALUES (@imp_obs, @user, @now - INTERVAL 1 HOUR, 'CANCELLED', 'zz_t12 cancelled');
+-- Cancelled request: cancelling its only item rolls the request up to CANCELLED;
+-- the item is excluded.
+INSERT INTO resource_request (impact_id, user_id, requested_at, description)
+VALUES (@imp_obs, @user, @now - INTERVAL 1 HOUR, 'zz_t12 cancelled');
 SET @req_cancelled = LAST_INSERT_ID();
 INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency)
 VALUES (@req_cancelled, @res_water, 5, 'HIGH');
 SET @it_in_cancelled = LAST_INSERT_ID();
+UPDATE request_item SET status = 'CANCELLED' WHERE request_item_id = @it_in_cancelled;
 
 -- Request in a CLOSED emergency: excluded.
 INSERT INTO resource_request (impact_id, user_id, requested_at, description)
@@ -319,7 +327,7 @@ SET @c = 'rows where priority_score <> fn_priority_score(item)', @e = 0,
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
 -- ---- v_stock_availability ----
-SET @c = 'availability rows for fixture centers', @e = 3,
+SET @c = 'availability rows for fixture centers', @e = 4,
     @a = (SELECT COUNT(*) FROM v_stock_availability WHERE center_id IN (@c_main, @c_ltd));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
