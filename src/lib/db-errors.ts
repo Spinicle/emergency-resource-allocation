@@ -1,10 +1,8 @@
 import "server-only";
+import type { ApiErrorBody } from "@/lib/api-contract";
 
-/** The `error` object of a failure response (docs/HANDOFF.md 4.6). */
-export type ApiErrorBody = { code: string; message: string; fields?: Record<string, string> };
-
-/** A MySQL error from mysql2, mapped to an HTTP status and body. */
-export type MappedDbError = ApiErrorBody & { status: number };
+/** A MySQL error from mysql2, mapped to an HTTP status and body (docs/HANDOFF.md 4.6). */
+export type MappedDbError = ApiErrorBody & { status: 400 | 409 };
 
 type MysqlError = { errno: number; sqlState?: string; sqlMessage: string };
 

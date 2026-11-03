@@ -1,6 +1,6 @@
 import "client-only";
 import useSWR from "swr";
-import type { ApiErrorBody } from "@/lib/db-errors";
+import type { ApiErrorBody, ErrorCode, FieldErrors } from "@/lib/api-contract";
 
 // Browser-side access to /api/* (docs/HANDOFF.md 4.5). Pages never import DB code.
 
@@ -8,9 +8,10 @@ import type { ApiErrorBody } from "@/lib/db-errors";
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string,
+    /** The server's code, or HTTP_ERROR when the response wasn't an { error } body. */
+    readonly code: ErrorCode | "HTTP_ERROR",
     message: string,
-    readonly fields?: Record<string, string>,
+    readonly fields?: FieldErrors,
   ) {
     super(message);
     this.name = "ApiError";
@@ -23,14 +24,14 @@ export class ApiError extends Error {
  * data; it isn't checked at runtime.
  */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(typeof init?.body === "string" && { "Content-Type": "application/json" }),
-      ...init?.headers,
-    },
-  });
+  // Headers() accepts every HeadersInit form; the caller's values win.
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const res = await fetch(path, { ...init, headers });
   const body = (await res.json().catch(() => null)) as { data?: T; error?: ApiErrorBody } | null;
   if (!res.ok || !body || body.error) {
     const error = body?.error;

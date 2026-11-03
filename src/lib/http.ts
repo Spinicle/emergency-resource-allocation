@@ -2,35 +2,36 @@ import "server-only";
 import { unstable_rethrow } from "next/navigation";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { type ApiErrorBody, mapDbError } from "@/lib/db-errors";
+import type { ApiErrorBody, ErrorCode, FieldErrors } from "@/lib/api-contract";
+import { mapDbError } from "@/lib/db-errors";
 
-/*
- * Route Handler plumbing (docs/HANDOFF.md 4.5, 4.6).
- *   success  { data }
- *   failure  { error: { code, message, fields? } }
- */
+// Route Handler plumbing (docs/HANDOFF.md 4.5, 4.6). The response shapes are
+// in api-contract.ts.
 
-const CODE_FOR_STATUS: Record<number, string> = {
+/** The statuses an HttpError may carry, with the code each one defaults to. */
+const CODE_FOR_STATUS = {
   400: "BAD_REQUEST",
   401: "UNAUTHENTICATED",
   403: "FORBIDDEN",
   404: "NOT_FOUND",
   409: "CONFLICT",
-};
+} as const satisfies Record<number, ErrorCode>;
+
+export type HttpErrorStatus = keyof typeof CODE_FOR_STATUS;
 
 /** An expected failure with its status. Its message is shown to the user as is. */
 export class HttpError extends Error {
-  readonly code: string;
-  readonly fields?: Record<string, string>;
+  readonly code: ErrorCode;
+  readonly fields?: FieldErrors;
 
   constructor(
-    readonly status: number,
+    readonly status: HttpErrorStatus,
     message: string,
-    options: { code?: string; fields?: Record<string, string> } = {},
+    options: { code?: ErrorCode; fields?: FieldErrors } = {},
   ) {
     super(message);
     this.name = "HttpError";
-    this.code = options.code ?? CODE_FOR_STATUS[status] ?? "ERROR";
+    this.code = options.code ?? CODE_FOR_STATUS[status];
     this.fields = options.fields;
   }
 }
@@ -92,7 +93,7 @@ function errorResponse(err: unknown): NextResponse {
 
 /** fields: dotted path -> its first message (e.g. "items.1.quantity_requested"). */
 function validationError(err: z.ZodError): ApiErrorBody {
-  const fields: Record<string, string> = {};
+  const fields: FieldErrors = {};
   let formMessage: string | undefined;
   for (const issue of err.issues) {
     const path = issue.path.map(String).join(".");
