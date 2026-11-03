@@ -125,7 +125,10 @@ export function DataTable<TData extends RowData>({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-20 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={table.getAllLeafColumns().length}
+                  className="h-20 text-center text-muted-foreground"
+                >
                   {emptyMessage}
                 </TableCell>
               </TableRow>
