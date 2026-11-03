@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:reset": "tsx scripts/reset-db.ts"
+    "db:reset": "tsx scripts/reset-db.ts",
+    "db:test": "tsx scripts/test-db.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

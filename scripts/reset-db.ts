@@ -12,150 +12,31 @@
  * Needs .env.local (copy .env.example) and the mysql CLI on PATH.
  * Stops at the first error. Never prints passwords.
  */
-import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { readdirSync } from "node:fs";
 import { MongoClient } from "mongodb";
 import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
 import { setupMongo } from "../db/mongo/setup";
+import { runMysql, withOptionFile } from "./lib/mysql-cli";
+import {
+  loadEnv,
+  MONGO_KEYS,
+  MYSQL_ADMIN_KEYS,
+  MYSQL_APP_KEYS,
+  runScript,
+  ScriptError,
+} from "./lib/script";
 
 const SQL_DIR = "db/mysql";
 const APP_USER_HOSTS = ["localhost", "127.0.0.1"];
-const REQUIRED_ENV = [
-  "MYSQL_HOST",
-  "MYSQL_PORT",
-  "MYSQL_DATABASE",
-  "MYSQL_USER",
-  "MYSQL_PASSWORD",
-  "MYSQL_ADMIN_USER",
-  "MYSQL_ADMIN_PASSWORD",
-  "MONGODB_URI",
-  "MONGODB_DB",
-] as const;
+const KEYS = [...MYSQL_APP_KEYS, ...MYSQL_ADMIN_KEYS, ...MONGO_KEYS];
 
-// db:reset runs DROP DATABASE / DROP USER as admin, so it refuses these names.
-const SYSTEM_MYSQL_SCHEMAS = ["mysql", "sys", "information_schema", "performance_schema"];
-const SYSTEM_MONGO_DBS = ["admin", "local", "config"];
-
-type Env = Record<(typeof REQUIRED_ENV)[number], string>;
-
-class ResetError extends Error {}
-
-function loadEnv(): Env {
-  // process.loadEnvFile keeps values already set in the shell, so a stale export
-  // would silently win over .env.local. Stop and name it instead.
-  const fromShell = REQUIRED_ENV.filter((k) => process.env[k] !== undefined);
-  if (fromShell.length > 0) {
-    throw new ResetError(
-      `set in your shell, so they would override .env.local: ${fromShell.join(", ")}. Unset them and rerun.`,
-    );
-  }
-  try {
-    process.loadEnvFile(".env.local");
-  } catch {
-    throw new ResetError(".env.local not found. Copy .env.example to .env.local and fill it in.");
-  }
-  const missing = REQUIRED_ENV.filter((k) => !process.env[k]?.trim());
-  if (missing.length > 0) {
-    throw new ResetError(`.env.local has no value for: ${missing.join(", ")}`);
-  }
-  const env = Object.fromEntries(REQUIRED_ENV.map((k) => [k, process.env[k]!.trim()])) as Env;
-  // These end up in identifiers and CLI arguments, so keep them plain.
-  for (const k of ["MYSQL_DATABASE", "MYSQL_USER", "MONGODB_DB"] as const) {
-    if (!/^[A-Za-z0-9_]+$/.test(env[k])) {
-      throw new ResetError(`${k} may only contain letters, digits and underscores.`);
-    }
-  }
-  if (SYSTEM_MYSQL_SCHEMAS.includes(env.MYSQL_DATABASE.toLowerCase())) {
-    throw new ResetError(`MYSQL_DATABASE=${env.MYSQL_DATABASE} is a MySQL system schema; refusing to drop it.`);
-  }
-  if (SYSTEM_MONGO_DBS.includes(env.MONGODB_DB.toLowerCase())) {
-    throw new ResetError(`MONGODB_DB=${env.MONGODB_DB} is a MongoDB system database; refusing to drop it.`);
-  }
-  // The app user is dropped and recreated with database-level grants only.
-  const appUser = env.MYSQL_USER.toLowerCase();
-  if (appUser === "root" || appUser === env.MYSQL_ADMIN_USER.toLowerCase()) {
-    throw new ResetError(
-      "MYSQL_USER must be its own least-privilege account, not root or MYSQL_ADMIN_USER " +
-        "(db:reset drops and recreates it).",
-    );
-  }
-  return env;
-}
+type Env = Record<(typeof KEYS)[number], string>;
 
 /** db/mysql/NN_*.sql, sorted by their number. */
 function sqlFiles(): string[] {
   return readdirSync(SQL_DIR)
     .filter((f) => /^\d+_.+\.sql$/.test(f))
     .sort((a, b) => parseInt(a, 10) - parseInt(b, 10) || a.localeCompare(b));
-}
-
-/**
- * Writes a temporary MySQL option file holding the admin credentials, so the
- * password never appears on a command line. Returns its path and a cleanup.
- */
-function writeClientOptionFile(env: Env): { file: string; cleanup: () => void } {
-  const pw = env.MYSQL_ADMIN_PASSWORD;
-  const quote = pw.includes('"') ? "'" : '"';
-  if (pw.includes(quote)) {
-    throw new ResetError("MYSQL_ADMIN_PASSWORD can't contain both ' and \" (MySQL option-file limit).");
-  }
-  const dir = mkdtempSync(path.join(tmpdir(), "eras-reset-"));
-  const file = path.join(dir, "client.cnf");
-  const lines = [
-    "[client]",
-    `host=${env.MYSQL_HOST}`,
-    `port=${env.MYSQL_PORT}`,
-    `user=${env.MYSQL_ADMIN_USER}`,
-    `password=${quote}${pw.replaceAll("\\", "\\\\")}${quote}`,
-    "",
-  ];
-  writeFileSync(file, lines.join("\n"), { mode: 0o600 });
-
-  // Remove it on normal return, on any process exit, and on Ctrl+C.
-  const remove = () => rmSync(dir, { recursive: true, force: true });
-  const onSigint = () => {
-    remove();
-    process.exit(130);
-  };
-  process.on("exit", remove);
-  process.once("SIGINT", onSigint);
-  const cleanup = () => {
-    remove();
-    process.off("exit", remove);
-    process.off("SIGINT", onSigint);
-  };
-  return { file, cleanup };
-}
-
-/** Feeds one SQL file to the mysql CLI. Rejects with the CLI's error text. */
-function runSqlFile(file: string, optionFile: string, database: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "mysql",
-      [`--defaults-extra-file=${optionFile}`, "--batch", "--default-character-set=utf8mb4", database],
-      { stdio: ["pipe", "ignore", "pipe"] },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.on("error", (err: NodeJS.ErrnoException) =>
-      reject(
-        err.code === "ENOENT"
-          ? new ResetError("mysql CLI not found. Add MySQL Server's bin folder to PATH.")
-          : err,
-      ),
-    );
-    child.on("close", (code) => {
-      if (code === 0) return resolve();
-      const msg = stderr
-        .split(/\r?\n/)
-        .filter((l) => l.trim())
-        .join("\n");
-      reject(new ResetError(msg || `mysql exited with code ${code}`));
-    });
-    child.stdin.end(readFileSync(file));
-  });
 }
 
 async function resetMysql(admin: Connection, env: Env): Promise<void> {
@@ -166,20 +47,23 @@ async function resetMysql(admin: Connection, env: Env): Promise<void> {
   console.log(`  recreated database ${db}`);
 
   const files = sqlFiles();
-  if (files.length === 0) throw new ResetError(`no NN_*.sql files in ${SQL_DIR}`);
-  const { file: optionFile, cleanup } = writeClientOptionFile(env);
-  try {
+  if (files.length === 0) throw new ScriptError(`no NN_*.sql files in ${SQL_DIR}`);
+  const creds = {
+    host: env.MYSQL_HOST,
+    port: env.MYSQL_PORT,
+    user: env.MYSQL_ADMIN_USER,
+    password: env.MYSQL_ADMIN_PASSWORD,
+  };
+  await withOptionFile(creds, async (optionFile) => {
     for (const f of files) {
       try {
-        await runSqlFile(`${SQL_DIR}/${f}`, optionFile, db);
+        await runMysql(`${SQL_DIR}/${f}`, optionFile, db);
       } catch (err) {
-        throw new ResetError(`${SQL_DIR}/${f} failed:\n${(err as Error).message}`);
+        throw new ScriptError(`${SQL_DIR}/${f} failed:\n${(err as Error).message}`);
       }
       console.log(`  ran ${f}`);
     }
-  } finally {
-    cleanup();
-  }
+  });
 }
 
 async function resetAppUser(admin: Connection, env: Env): Promise<void> {
@@ -206,7 +90,7 @@ async function resetMongo(env: Env): Promise<Record<string, number>> {
     try {
       await client.connect();
     } catch {
-      throw new ResetError(`can't reach MongoDB at ${shownUri}. Is the MongoDB service running?`);
+      throw new ScriptError(`can't reach MongoDB at ${shownUri}. Is the MongoDB service running?`);
     }
     const db = client.db(env.MONGODB_DB);
     await db.dropDatabase();
@@ -251,7 +135,7 @@ function printCounts(title: string, counts: Record<string, number>): void {
 }
 
 async function main(): Promise<void> {
-  const env = loadEnv();
+  const env = loadEnv(KEYS);
   const admin = await mysql.createConnection({
     host: env.MYSQL_HOST,
     port: Number(env.MYSQL_PORT),
@@ -270,10 +154,4 @@ async function main(): Promise<void> {
   console.log("\ndb:reset done");
 }
 
-main().catch((err: unknown) => {
-  // Only the message: mysql2 errors also carry the SQL text, which can include a password.
-  const e = err as { message?: string; code?: string };
-  const detail = err instanceof ResetError ? e.message : `${e.code ? `${e.code}: ` : ""}${e.message}`;
-  console.error(`\ndb:reset failed: ${detail}`);
-  process.exitCode = 1;
-});
+runScript("db:reset", main);
