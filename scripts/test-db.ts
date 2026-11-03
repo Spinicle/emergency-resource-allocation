@@ -9,7 +9,7 @@
  * Exits 1 if any file errors, prints no rows, or has a FAIL cell.
  */
 import { readdirSync } from "node:fs";
-import { MysqlCliError, runMysql, withOptionFile } from "./lib/mysql-cli";
+import { MysqlCliError, withMysqlCli } from "./lib/mysql-cli";
 import { loadEnv, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
 const TEST_DIR = "db/mysql/tests";
@@ -39,21 +39,24 @@ async function main(): Promise<void> {
   }
 
   const problems: string[] = [];
-  const creds = {
+  const target = {
     host: env.MYSQL_HOST,
     port: env.MYSQL_PORT,
     user: env.MYSQL_USER,
     password: env.MYSQL_PASSWORD,
+    database: env.MYSQL_DATABASE,
   };
-  await withOptionFile(creds, async (optionFile) => {
+  await withMysqlCli(target, async (runSqlFile) => {
     for (const f of files) {
       console.log(`\n=== ${TEST_DIR}/${f} (as ${env.MYSQL_USER})`);
       let output: string;
       try {
-        output = await runMysql(`${TEST_DIR}/${f}`, optionFile, env.MYSQL_DATABASE, { table: true });
+        output = await runSqlFile(`${TEST_DIR}/${f}`, { table: true });
       } catch (err) {
-        if (err instanceof MysqlCliError) process.stdout.write(err.stdout);
-        console.log((err as Error).message);
+        // An error reported by the CLI fails this file; anything else (e.g. no CLI) stops the run.
+        if (!(err instanceof MysqlCliError)) throw err;
+        process.stdout.write(err.stdout);
+        console.log(err.message);
         problems.push(`${f}: stopped on an error`);
         continue;
       }

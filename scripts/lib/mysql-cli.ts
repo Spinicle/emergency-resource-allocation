@@ -8,7 +8,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ScriptError } from "./script";
 
-export type MysqlCredentials = { host: string; port: string; user: string; password: string };
+/** Who to connect as, and which database the files run in. */
+export type MysqlTarget = {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+  database: string;
+};
+
+/** Runs one SQL file and resolves with its stdout. table: true prints boxed tables. */
+export type RunSqlFile = (file: string, opts?: { table?: boolean }) => Promise<string>;
 
 /** The CLI stopped on an SQL error. stdout holds whatever it printed before that. */
 export class MysqlCliError extends ScriptError {
@@ -21,21 +31,16 @@ export class MysqlCliError extends ScriptError {
 }
 
 /**
- * Writes the credentials to a temporary MySQL option file, runs fn with its
- * path, and deletes it afterwards: on return, on any process exit, and on Ctrl+C.
+ * Gives fn a runner for SQL files against target. The credentials live in a
+ * temporary MySQL option file for the duration of fn, deleted afterwards: on
+ * return, on any process exit, and on Ctrl+C.
  */
-export async function withOptionFile<T>(
-  creds: MysqlCredentials,
-  fn: (optionFile: string) => Promise<T>,
+export async function withMysqlCli<T>(
+  target: MysqlTarget,
+  fn: (runSqlFile: RunSqlFile) => Promise<T>,
 ): Promise<T> {
-  const pw = creds.password;
-  const quote = pw.includes('"') ? "'" : '"';
-  if (pw.includes(quote)) {
-    throw new ScriptError("A MySQL password can't contain both ' and \" (option-file limit).");
-  }
-  const dir = mkdtempSync(path.join(tmpdir(), "eras-mysql-"));
-  const file = path.join(dir, "client.cnf");
-  const remove = () => rmSync(dir, { recursive: true, force: true });
+  const optionFile = writeOptionFile(target);
+  const remove = () => rmSync(path.dirname(optionFile), { recursive: true, force: true });
   const onSigint = () => {
     remove();
     process.exit(130);
@@ -43,16 +48,7 @@ export async function withOptionFile<T>(
   process.on("exit", remove);
   process.once("SIGINT", onSigint);
   try {
-    const lines = [
-      "[client]",
-      `host=${creds.host}`,
-      `port=${creds.port}`,
-      `user=${creds.user}`,
-      `password=${quote}${pw.replaceAll("\\", "\\\\")}${quote}`,
-      "",
-    ];
-    writeFileSync(file, lines.join("\n"), { mode: 0o600 });
-    return await fn(file);
+    return await fn((file, opts = {}) => runMysql(file, optionFile, target.database, opts.table ?? false));
   } finally {
     remove();
     process.off("exit", remove);
@@ -60,24 +56,35 @@ export async function withOptionFile<T>(
   }
 }
 
+function writeOptionFile({ host, port, user, password }: MysqlTarget): string {
+  const quote = password.includes('"') ? "'" : '"';
+  if (password.includes(quote)) {
+    throw new ScriptError("A MySQL password can't contain both ' and \" (option-file limit).");
+  }
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "eras-mysql-")), "client.cnf");
+  const lines = [
+    "[client]",
+    `host=${host}`,
+    `port=${port}`,
+    `user=${user}`,
+    `password=${quote}${password.replaceAll("\\", "\\\\")}${quote}`,
+    "",
+  ];
+  writeFileSync(file, lines.join("\n"), { mode: 0o600 });
+  return file;
+}
+
 /**
- * Feeds one SQL file to the mysql CLI and resolves with its stdout. The CLI stops
- * at the first error; this then rejects with a MysqlCliError carrying the CLI's
- * error text and the output printed before it.
- * table: true prints result sets as boxed tables (for test output).
+ * Feeds one SQL file to the mysql CLI. The CLI stops at the first error; this
+ * then rejects with a MysqlCliError carrying its error text and earlier output.
  */
-export function runMysql(
-  file: string,
-  optionFile: string,
-  database: string,
-  opts: { table?: boolean } = {},
-): Promise<string> {
+function runMysql(file: string, optionFile: string, database: string, table: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "mysql",
       [
         `--defaults-extra-file=${optionFile}`,
-        opts.table ? "--table" : "--batch",
+        table ? "--table" : "--batch",
         "--default-character-set=utf8mb4",
         database,
       ],
@@ -87,6 +94,10 @@ export function runMysql(
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => (stderr += chunk));
+    // If mysql is missing or exits early (first-line error, bad login), writing
+    // the file fails with EPIPE; without a handler that crashes Node on
+    // macOS/Linux. The real failure is reported by "error" / "close" below.
+    child.stdin.on("error", () => {});
     child.on("error", (err: NodeJS.ErrnoException) =>
       reject(
         err.code === "ENOENT"

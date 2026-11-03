@@ -16,7 +16,7 @@ import { readdirSync } from "node:fs";
 import { MongoClient } from "mongodb";
 import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
 import { setupMongo } from "../db/mongo/setup";
-import { runMysql, withOptionFile } from "./lib/mysql-cli";
+import { withMysqlCli } from "./lib/mysql-cli";
 import {
   loadEnv,
   MONGO_KEYS,
@@ -48,16 +48,17 @@ async function resetMysql(admin: Connection, env: Env): Promise<void> {
 
   const files = sqlFiles();
   if (files.length === 0) throw new ScriptError(`no NN_*.sql files in ${SQL_DIR}`);
-  const creds = {
+  const target = {
     host: env.MYSQL_HOST,
     port: env.MYSQL_PORT,
     user: env.MYSQL_ADMIN_USER,
     password: env.MYSQL_ADMIN_PASSWORD,
+    database: db,
   };
-  await withOptionFile(creds, async (optionFile) => {
+  await withMysqlCli(target, async (runSqlFile) => {
     for (const f of files) {
       try {
-        await runMysql(`${SQL_DIR}/${f}`, optionFile, db);
+        await runSqlFile(`${SQL_DIR}/${f}`);
       } catch (err) {
         throw new ScriptError(`${SQL_DIR}/${f} failed:\n${(err as Error).message}`);
       }
