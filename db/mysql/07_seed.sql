@@ -178,8 +178,106 @@ VALUES (@role_cm, @c_mdk, 'Meena Appaiah', 'cm.kodagu@eras.test',
 SET @u_cm_kodagu = LAST_INSERT_ID();
 
 -- ===========================================================================
+-- Emergencies and impacts. All start ACTIVE; the Mysuru outbreak is closed in
+-- the timeline below, after its history is built.
+-- ===========================================================================
+
+INSERT INTO emergency (name, type, start_time, status, description)
+VALUES ('Bengaluru Urban Flood', 'FLOOD', @t0 - INTERVAL 120 HOUR, 'ACTIVE',
+        'Three days of heavy rain overflowed Bellandur and Varthur lakes and the storm drains '
+        'of east Bengaluru. Apartment ground floors, underpasses and arterial roads are flooded; '
+        'residents are stranded on upper floors and need water, food and evacuation.');
+SET @e_flood = LAST_INSERT_ID();
+INSERT INTO emergency (name, type, start_time, status, description)
+VALUES ('Kodagu Landslide', 'LANDSLIDE', @t0 - INTERVAL 72 HOUR, 'ACTIVE',
+        'Landslides after a cloudburst over the Western Ghats cut roads around Madikeri, '
+        'Makkandur and Bhagamandala. Houses are damaged, villages are cut off and families '
+        'are sheltering in relief camps.');
+SET @e_kodagu = LAST_INSERT_ID();
+INSERT INTO emergency (name, type, start_time, status, description)
+VALUES ('Mysuru Dengue Outbreak', 'EPIDEMIC', @t0 - INTERVAL 40 DAY, 'ACTIVE',
+        'Dengue cases rose sharply in Mysuru city and Nanjangud after the monsoon. Health camps '
+        'needed test kits, IV fluids, ORS and mosquito nets until case counts fell.');
+SET @e_mysuru = LAST_INSERT_ID();
+
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_flood, @l_bellandur, 'ACTIVE');
+SET @i_bellandur = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_flood, @l_mahadevapura, 'ACTIVE');
+SET @i_mahadevapura = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_flood, @l_koramangala, 'ACTIVE');
+SET @i_koramangala = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_flood, @l_yelahanka, 'ACTIVE');
+SET @i_yelahanka = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_kodagu, @l_madikeri, 'ACTIVE');
+SET @i_madikeri = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_kodagu, @l_makkandur, 'ACTIVE');
+SET @i_makkandur = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_kodagu, @l_bhagamandala, 'ACTIVE');
+SET @i_bhagamandala = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_kodagu, @l_napoklu, 'ACTIVE');
+SET @i_napoklu = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_mysuru, @l_nr_mohalla, 'ACTIVE');
+SET @i_nr_mohalla = LAST_INSERT_ID();
+INSERT INTO emergency_impact (emergency_id, location_id, status) VALUES (@e_mysuru, @l_nanjangud, 'ACTIVE');
+SET @i_nanjangud = LAST_INSERT_ID();
+
+-- ===========================================================================
+-- Observations (38). The latest one per impact drives the priority score;
+-- Bellandur, Mahadevapura, Madikeri and Bhagamandala got worse at their latest
+-- observation (query 7). Napoklu has none yet (S = 0.5, A = 0).
+-- ===========================================================================
+
+INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percentage, severity) VALUES
+    (@i_bellandur,    @u_field1, @t0 - INTERVAL 118 HOUR, 10, 'LOW'),
+    (@i_bellandur,    @u_field1, @t0 - INTERVAL  96 HOUR, 25, 'MODERATE'),
+    (@i_bellandur,    @u_field1, @t0 - INTERVAL  72 HOUR, 45, 'HIGH'),
+    (@i_bellandur,    @u_field1, @t0 - INTERVAL  48 HOUR, 55, 'HIGH'),
+    (@i_bellandur,    @u_field1, @t0 - INTERVAL  20 HOUR, 70, 'CRITICAL'),
+    (@i_mahadevapura, @u_field1, @t0 - INTERVAL 110 HOUR, 20, 'MODERATE'),
+    (@i_mahadevapura, @u_field1, @t0 - INTERVAL  70 HOUR, 28, 'MODERATE'),
+    (@i_mahadevapura, @u_field1, @t0 - INTERVAL  40 HOUR, 30, 'MODERATE'),
+    (@i_mahadevapura, @u_field1, @t0 - INTERVAL   6 HOUR, 42, 'HIGH'),
+    (@i_koramangala,  @u_field1, @t0 - INTERVAL 115 HOUR, 40, 'HIGH'),
+    (@i_koramangala,  @u_field1, @t0 - INTERVAL  90 HOUR, 50, 'HIGH'),
+    (@i_koramangala,  @u_field1, @t0 - INTERVAL  60 HOUR, 35, 'MODERATE'),
+    (@i_koramangala,  @u_field1, @t0 - INTERVAL  30 HOUR, 25, 'MODERATE'),
+    (@i_koramangala,  @u_field1, @t0 - INTERVAL   8 HOUR, 12, 'LOW'),
+    (@i_yelahanka,    @u_field1, @t0 - INTERVAL 100 HOUR, 15, 'MODERATE'),
+    (@i_yelahanka,    @u_field1, @t0 - INTERVAL  50 HOUR,  6, 'LOW'),
+    (@i_yelahanka,    @u_field1, @t0 - INTERVAL  20 HOUR,  2, 'LOW');
+
+INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percentage, severity) VALUES
+    (@i_madikeri,     @u_field2, @t0 - INTERVAL 70 HOUR, 20, 'MODERATE'),
+    (@i_madikeri,     @u_field2, @t0 - INTERVAL 60 HOUR, 25, 'MODERATE'),
+    (@i_madikeri,     @u_field2, @t0 - INTERVAL 50 HOUR, 35, 'HIGH'),
+    (@i_madikeri,     @u_field2, @t0 - INTERVAL 26 HOUR, 40, 'HIGH'),
+    (@i_madikeri,     @u_field2, @t0 - INTERVAL  4 HOUR, 55, 'CRITICAL'),
+    (@i_makkandur,    @u_field2, @t0 - INTERVAL 68 HOUR, 60, 'HIGH'),
+    (@i_makkandur,    @u_field2, @t0 - INTERVAL 55 HOUR, 62, 'HIGH'),
+    (@i_makkandur,    @u_field2, @t0 - INTERVAL 40 HOUR, 75, 'CRITICAL'),
+    (@i_makkandur,    @u_field2, @t0 - INTERVAL 12 HOUR, 65, 'HIGH'),
+    (@i_bhagamandala, @u_field2, @t0 - INTERVAL 60 HOUR, 10, 'LOW'),
+    (@i_bhagamandala, @u_field2, @t0 - INTERVAL 30 HOUR, 15, 'LOW'),
+    (@i_bhagamandala, @u_field2, @t0 - INTERVAL  9 HOUR, 25, 'MODERATE');
+
+INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percentage, severity) VALUES
+    (@i_nr_mohalla,   @u_field3, @t0 - INTERVAL 38 DAY, 15, 'MODERATE'),
+    (@i_nr_mohalla,   @u_field3, @t0 - INTERVAL 33 DAY, 35, 'HIGH'),
+    (@i_nr_mohalla,   @u_field3, @t0 - INTERVAL 28 DAY, 40, 'HIGH'),
+    (@i_nr_mohalla,   @u_field3, @t0 - INTERVAL 22 DAY, 20, 'MODERATE'),
+    (@i_nr_mohalla,   @u_field3, @t0 - INTERVAL 16 DAY,  5, 'LOW'),
+    (@i_nanjangud,    @u_field3, @t0 - INTERVAL 36 DAY,  8, 'LOW'),
+    (@i_nanjangud,    @u_field3, @t0 - INTERVAL 30 DAY, 18, 'MODERATE'),
+    (@i_nanjangud,    @u_field3, @t0 - INTERVAL 24 DAY, 12, 'MODERATE'),
+    (@i_nanjangud,    @u_field3, @t0 - INTERVAL 17 DAY,  4, 'LOW');
+
+-- ===========================================================================
 -- Final state
 -- ===========================================================================
+
+-- Koramangala's water is receding; Yelahanka is clear (its last request stays open).
+UPDATE emergency_impact SET status = 'STABILISED' WHERE impact_id = @i_koramangala;
+UPDATE emergency_impact SET status = 'RESOLVED'   WHERE impact_id = @i_yelahanka;
 
 -- field3 left after the Mysuru outbreak: deactivated, never deleted.
 UPDATE `user` SET is_active = FALSE WHERE user_id = @u_field3;
