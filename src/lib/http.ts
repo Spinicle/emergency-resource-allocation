@@ -4,6 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type { ApiErrorBody, ErrorCode, FieldErrors } from "@/lib/api-contract";
 import { mapDbError } from "@/lib/db-errors";
+import { mapMongoError } from "@/lib/mongo-errors";
 
 // Route Handler plumbing (docs/HANDOFF.md 4.5, 4.6). The response shapes are
 // in api-contract.ts.
@@ -15,6 +16,7 @@ const CODE_FOR_STATUS = {
   403: "FORBIDDEN",
   404: "NOT_FOUND",
   409: "CONFLICT",
+  503: "UNAVAILABLE",
 } as const satisfies Record<number, ErrorCode>;
 
 export type HttpErrorStatus = keyof typeof CODE_FOR_STATUS;
@@ -81,9 +83,9 @@ function errorResponse(err: unknown): NextResponse {
   }
   if (err instanceof z.ZodError) return fail(400, validationError(err));
 
-  const db = mapDbError(err);
-  if (db) {
-    const { status, ...error } = db;
+  const mapped = mapDbError(err) ?? mapMongoError(err);
+  if (mapped) {
+    const { status, ...error } = mapped;
     return fail(status, error);
   }
 

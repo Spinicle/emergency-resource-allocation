@@ -1,5 +1,5 @@
 // The /api response contract (docs/HANDOFF.md 4.6), shared by the server
-// (http.ts, db-errors.ts) and the browser (client.ts).
+// (http.ts, db-errors.ts, mongo-errors.ts) and the browser (client.ts).
 //   success  { data }
 //   failure  { error: { code, message, fields? } }
 // No imports, so both sides can use it.
@@ -20,6 +20,7 @@ export type ErrorCode =
   | "MISSING_REFERENCE"
   | "DUPLICATE"
   | "RETRY"
+  | "UNAVAILABLE"
   | "INTERNAL";
 
 /** Field path (e.g. "items.1.quantity_requested") -> its first message. */
