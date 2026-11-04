@@ -23,7 +23,7 @@ export function mapMongoError(err: unknown): MappedMongoError | null {
     return {
       status: 503,
       code: "UNAVAILABLE",
-      message: "The field report store is unavailable right now. Nothing was saved; try again.",
+      message: "MongoDB is unavailable right now. Try again in a moment.",
     };
   }
   if (err instanceof MongoServerError) {
