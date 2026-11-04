@@ -1,6 +1,7 @@
 import "server-only";
 import { getSession, type Role, type Session } from "@/lib/auth";
 import { HttpError } from "@/lib/http";
+import { SIGNED_OUT_MESSAGE } from "@/lib/session-token";
 
 // Access checks for Route Handlers (docs/HANDOFF.md 4.5). Call one of these
 // first in every handler, once per request: each reads the database.
@@ -8,7 +9,7 @@ import { HttpError } from "@/lib/http";
 /** The signed-in user. Throws HttpError 401 if there is none. */
 export async function requireSession(): Promise<Session> {
   const session = await getSession();
-  if (!session) throw new HttpError(401, "Sign in to continue");
+  if (!session) throw new HttpError(401, SIGNED_OUT_MESSAGE);
   return session;
 }
 

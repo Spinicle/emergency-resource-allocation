@@ -1,5 +1,5 @@
-// The ?next= target after sign-in, kept on this site. No imports: the login
-// page and the verification scripts both use it.
+// The ?next= target after sign-in, kept on this site. A pure check with no
+// imports, so it runs anywhere (the login page today).
 
 const FALLBACK = "/dashboard";
 

@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { sectionFor } from "@/config/nav";
 import type { ApiErrorBody } from "@/lib/api-contract";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session-token";
+import { SESSION_COOKIE, SIGNED_OUT_MESSAGE, verifySessionToken } from "@/lib/session-token";
 
 // Runs before every page and /api request (docs/HANDOFF.md 4.6, 4.7). It only
 // checks the session token: no database, so a deactivated user still gets
@@ -21,7 +21,7 @@ export async function proxy(req: NextRequest) {
 
   if (pathname === "/api" || pathname.startsWith("/api/")) {
     if (claims) return NextResponse.next();
-    const error = { code: "UNAUTHENTICATED", message: "Sign in to continue" } satisfies ApiErrorBody;
+    const error = { code: "UNAUTHENTICATED", message: SIGNED_OUT_MESSAGE } satisfies ApiErrorBody;
     return NextResponse.json({ error }, { status: 401 });
   }
 

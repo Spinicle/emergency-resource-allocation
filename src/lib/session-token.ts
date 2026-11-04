@@ -12,6 +12,9 @@ export const SESSION_COOKIE = "eras_session";
 /** 8 hours. Not refreshed: the user signs in again after it runs out. */
 export const SESSION_TTL_S = 8 * 60 * 60;
 
+/** The 401 message for a missing or invalid session, from the proxy and from requireSession. */
+export const SIGNED_OUT_MESSAGE = "Sign in to continue";
+
 /** What the token carries: sub (userId), role and centerId, nothing else. */
 export type SessionClaims = { userId: number; role: Role; centerId: number | null };
 
@@ -43,15 +46,14 @@ export async function signSessionToken(claims: SessionClaims): Promise<string> {
  */
 export async function verifySessionToken(token: string | undefined): Promise<SessionClaims | null> {
   if (!token) return null;
-  let payload;
-  try {
-    ({ payload } = await jwtVerify(token, secretKey(), {
-      algorithms: ["HS256"],
-      requiredClaims: ["sub", "iat", "exp"],
-    }));
-  } catch {
-    return null;
-  }
+  const payload = await jwtVerify(token, secretKey(), {
+    algorithms: ["HS256"],
+    requiredClaims: ["sub", "iat", "exp"],
+  }).then(
+    (result) => result.payload,
+    () => null,
+  );
+  if (!payload) return null;
 
   const { sub, role, centerId } = payload;
   if (typeof sub !== "string" || !/^[1-9]\d*$/.test(sub)) return null;
