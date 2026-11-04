@@ -15,8 +15,9 @@ import {
 import type { Role } from "@/lib/enums";
 
 // Sidebar entries and who sees them (docs/HANDOFF.md 4.7). Add your page here
-// with the roles that may open it; the page's API handlers enforce the same
-// roles with requireRole (P1.6). ADMIN is listed explicitly wherever it's allowed.
+// with the roles that may open it: the proxy sends other roles from the page
+// (and pages under it) to /dashboard, and its API handlers enforce the same
+// roles with requireRole. ADMIN is listed explicitly wherever it's allowed.
 
 export type NavItem = {
   href: string;

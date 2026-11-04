@@ -25,11 +25,11 @@ export function AppHeader({ session }: { session: Session }) {
   const section = sectionFor(pathname);
 
   async function signOut() {
-    // P1.6: POST /api/auth/logout clears the session cookie. Until it exists,
-    // the API catch-all answers 404 and this shows that error.
+    // POST /api/auth/logout clears the session cookie; refresh drops the cached signed-in pages.
     try {
       await api("/api/auth/logout", { method: "POST" });
       router.replace("/login");
+      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sign-out failed");
     }
