@@ -8,6 +8,7 @@ import {
   TRENDS,
 } from "../../src/lib/validators/observations";
 import { insertActivity } from "./activity_log";
+import { COUNT, ID } from "./json-schema";
 import { type Queryable, selectRows } from "./queryable";
 import type { CollectionModule } from "./setup";
 
@@ -19,9 +20,7 @@ import type { CollectionModule } from "./setup";
 
 export const FIELD_REPORTS = "field_reports";
 
-const int = { bsonType: "int" } as const;
 const number = { bsonType: "number" } as const;
-const count = { bsonType: "number", minimum: 0, multipleOf: 1 } as const;
 const text = { bsonType: "string", minLength: 1, maxLength: L.text } as const;
 
 /**
@@ -35,7 +34,7 @@ const branches = [
       emergency_type: { enum: ["FLOOD"] },
       details: {
         required: ["water_level_m", "roads_submerged"],
-        properties: { water_level_m: { ...number, minimum: 0 }, roads_submerged: count },
+        properties: { water_level_m: { ...number, minimum: 0 }, roads_submerged: COUNT },
       },
     },
   },
@@ -44,14 +43,14 @@ const branches = [
       emergency_type: { enum: ["EARTHQUAKE"] },
       details: {
         required: ["magnitude", "buildings_collapsed"],
-        properties: { magnitude: { ...number, minimum: 0, maximum: L.magnitude }, buildings_collapsed: count },
+        properties: { magnitude: { ...number, minimum: 0, maximum: L.magnitude }, buildings_collapsed: COUNT },
       },
     },
   },
   {
     properties: {
       emergency_type: { enum: ["EPIDEMIC"] },
-      details: { required: ["new_cases", "deaths"], properties: { new_cases: count, deaths: count } },
+      details: { required: ["new_cases", "deaths"], properties: { new_cases: COUNT, deaths: COUNT } },
     },
   },
   { properties: { emergency_type: { enum: [...OTHER_TYPES] } } },
@@ -71,14 +70,14 @@ export const fieldReportSchema = {
     "details",
   ],
   properties: {
-    emergency_id: int,
-    impact_id: int,
-    observation_id: int,
+    emergency_id: ID,
+    impact_id: ID,
+    observation_id: ID,
     emergency_type: { enum: [...EMERGENCY_TYPES] },
     reported_by: {
       bsonType: "object",
       required: ["user_id", "name"],
-      properties: { user_id: int, name: { bsonType: "string", minLength: 1 } },
+      properties: { user_id: ID, name: { bsonType: "string", minLength: 1 } },
     },
     reported_at: { bsonType: "date" },
     // GeoJSON Point: [lng, lat].
@@ -102,7 +101,7 @@ export const fieldReportSchema = {
     details: { bsonType: "object", properties: { trend: { enum: [...TRENDS] } } },
     casualties: {
       bsonType: "object",
-      properties: { injured: count, missing: count, deceased: count },
+      properties: { injured: COUNT, missing: COUNT, deceased: COUNT },
     },
     needs_observed: {
       bsonType: "array",

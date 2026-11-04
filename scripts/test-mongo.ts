@@ -2,26 +2,27 @@
  * npm run mongo:test — checks the MongoDB side (docs/HANDOFF.md 4.4, Appendix A).
  *
  * Runs as the app user (MYSQL_USER) against the MySQL and MongoDB databases
- * in .env.local. Safe on a seeded database: fixtures use zz_ names and
- * negative or zz_-only ids, and are removed at the end.
+ * in .env.local. Safe on a seeded database: fixtures use zz_ names, zz_
+ * scratch collections and ids no seed row has, and are removed at the end.
  *
  *  1. Seed backfill: activity_log counts per action equal MySQL's, derived
  *     times sit inside their bounds, stored times match their rows. These run
  *     only while the database is untouched since the seed (like t_seed's
  *     Part B); otherwise they print SKIP.
  *  2. T12: a FLOOD report without water_level_m, inserted directly -> 121.
- *  3. Zod and the field_reports validator agree on a shared set of fixtures.
+ *  3. Zod and the field_reports validator agree on a shared set of fixtures;
+ *     whole-number doubles (as mongosh and Compass store them) pass both validators.
  *  4. fileFieldReport: a report lands in both databases with one instant;
  *     T13: a report only the validator rejects leaves no observation behind.
  *
  * Prints PASS / FAIL / SKIP per check; exits 1 on any FAIL.
  */
-import { MongoClient, type Db } from "mongodb";
+import { type Db, Double, MongoClient } from "mongodb";
 import mysql, { type Connection } from "mysql2/promise";
 import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry } from "../src/lib/activity";
 import { dateToIst, istToDate } from "../src/lib/ist";
 import { observationSchema } from "../src/lib/validators/observations";
-import { ACTIVITY_LOG, seedTime } from "../db/mongo/activity_log";
+import { ACTIVITY_LOG, activityLogSchema, seedTime } from "../db/mongo/activity_log";
 import {
   buildReportDoc,
   createFieldReports,
@@ -33,6 +34,7 @@ import { selectRows } from "../db/mongo/queryable";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
 const SCRATCH = "zz_field_reports_check";
+const SCRATCH_LOG = "zz_activity_log_check";
 const ZZ = "zz_mongo_test";
 
 let fails = 0;
@@ -209,10 +211,12 @@ function docFor(body: Record<string, unknown>, observationId: number) {
 
 async function checkValidator(db: Db): Promise<void> {
   console.log("\n2. T12: a FLOOD report without water_level_m, inserted directly");
+  // Valid in every other way, so water_level_m is the only reason to refuse it.
+  const t12Id = 2_000_000_012;
   const t12 = await outcome(
-    db.collection(FIELD_REPORTS).insertOne(docFor({ ...reportBase, emergency_type: "FLOOD", details: { roads_submerged: 6 } }, -12)),
+    db.collection(FIELD_REPORTS).insertOne(docFor({ ...reportBase, emergency_type: "FLOOD", details: { roads_submerged: 6 } }, t12Id)),
   );
-  if (t12 === "ok") await db.collection(FIELD_REPORTS).deleteOne({ observation_id: -12 });
+  if (t12 === "ok") await db.collection(FIELD_REPORTS).deleteOne({ observation_id: t12Id });
   check(`rejected with code 121 (got ${t12})`, t12 === 121);
 
   console.log("\n3. Zod and the field_reports validator agree");
@@ -233,8 +237,37 @@ async function checkValidator(db: Db): Promise<void> {
         `expected both to ${f.valid ? "accept" : "reject"}`,
       );
     }
+
+    // mongosh and Compass store 1 as a double: whole-number doubles must pass both validators.
+    const asDoubles = {
+      ...docFor({ ...reportBase, emergency_type: "FLOOD", details: { water_level_m: 1, roads_submerged: 2 } }, 0),
+      emergency_id: new Double(1),
+      impact_id: new Double(1),
+      observation_id: new Double(++id),
+      reported_by: { user_id: new Double(3), name: "zz test" },
+      details: { water_level_m: new Double(1), roads_submerged: new Double(2) },
+    };
+    const report = await outcome(db.collection(SCRATCH).insertOne(asDoubles));
+    check(`a FLOOD report with double ids and counts passes the field_reports validator (got ${report})`, report === "ok");
   } finally {
     await db.collection(SCRATCH).drop();
+  }
+
+  await db.collection(SCRATCH_LOG).drop().catch(() => undefined);
+  await db.createCollection(SCRATCH_LOG, { validator: { $jsonSchema: activityLogSchema }, validationAction: "error" });
+  try {
+    const entry = await outcome(
+      db.collection(SCRATCH_LOG).insertOne({
+        ts: new Date(),
+        actor: { user_id: new Double(3), name: "zz test", role: "FIELD_OFFICER" },
+        action: "REQUEST_CREATED",
+        entity: { type: "REQUEST", id: new Double(1) },
+        refs: { request_id: new Double(1), emergency_id: new Double(1), center_id: new Double(1) },
+      }),
+    );
+    check(`an activity entry with double ids passes the activity_log validator (got ${entry})`, entry === "ok");
+  } finally {
+    await db.collection(SCRATCH_LOG).drop();
   }
 }
 

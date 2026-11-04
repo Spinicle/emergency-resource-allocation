@@ -8,6 +8,7 @@ import {
 } from "../../src/lib/activity";
 import { ROLES, type Role } from "../../src/lib/enums";
 import { istToDate } from "../../src/lib/ist";
+import { ID, NULLABLE_ID } from "./json-schema";
 import { type Queryable, selectRows } from "./queryable";
 import type { CollectionModule } from "./setup";
 
@@ -15,8 +16,6 @@ import type { CollectionModule } from "./setup";
 // insertActivity writes to it, and nothing updates or deletes entries.
 
 export const ACTIVITY_LOG = "activity_log";
-
-const intRef = { bsonType: "int" } as const;
 
 /** The validator. Its enums are the lists in src/lib/activity.ts and enums.ts. */
 export const activityLogSchema = {
@@ -28,7 +27,7 @@ export const activityLogSchema = {
       bsonType: "object",
       required: ["user_id", "name", "role"],
       properties: {
-        user_id: { bsonType: ["int", "null"] },
+        user_id: NULLABLE_ID,
         name: { bsonType: "string", minLength: 1 },
         role: { enum: [...ROLES, null] },
       },
@@ -39,12 +38,12 @@ export const activityLogSchema = {
       required: ["type", "id"],
       properties: {
         type: { enum: [...ACTIVITY_ENTITY_TYPES] },
-        id: { bsonType: "int" },
+        id: ID,
       },
     },
     refs: {
       bsonType: "object",
-      properties: { request_id: intRef, emergency_id: intRef, center_id: intRef },
+      properties: { request_id: ID, emergency_id: ID, center_id: ID },
     },
     payload: { bsonType: "object" },
   },
