@@ -22,7 +22,8 @@ import mysql, { type Connection } from "mysql2/promise";
 import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry } from "../src/lib/activity";
 import { dateToIst, istToDate } from "../src/lib/ist";
 import { observationSchema } from "../src/lib/validators/observations";
-import { ACTIVITY_LOG, activityLogSchema, seedTime } from "../db/mongo/activity_log";
+import { seedTime } from "../db/mongo/activity_backfill";
+import { ACTIVITY_LOG, activityLogSchema } from "../db/mongo/activity_log";
 import {
   buildReportDoc,
   createFieldReports,
