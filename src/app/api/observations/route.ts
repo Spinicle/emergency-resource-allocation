@@ -1,4 +1,4 @@
-import { fileFieldReport } from "../../../../db/mongo/field_reports";
+import { fileFieldReport } from "@db/mongo/field_reports";
 import type { EmergencyStatus, EmergencyType } from "@/lib/enums";
 import { handle, HttpError, ok, parseJson } from "@/lib/http";
 import { getDb } from "@/lib/mongo";

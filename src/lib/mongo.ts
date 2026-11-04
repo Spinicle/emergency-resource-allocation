@@ -1,6 +1,6 @@
 import "server-only";
 import { type Db, MongoClient } from "mongodb";
-import { insertActivity } from "../../db/mongo/activity_log";
+import { insertActivity } from "@db/mongo/activity_log";
 import type { ActivityAction, ActivityEntityType, ActivityRefs } from "@/lib/activity";
 import type { Session } from "@/lib/auth";
 import { requireEnv } from "@/lib/env";
