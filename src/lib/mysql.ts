@@ -23,8 +23,12 @@ import { requireEnv } from "@/lib/env";
 
 const cache = globalThis as typeof globalThis & { __erasMysqlPool?: Pool };
 
-/** One pool per server process; kept on globalThis so dev hot reload doesn't leak pools. Created on first use. */
-function pool(): Pool {
+/**
+ * One pool per server process; kept on globalThis so dev hot reload doesn't
+ * leak pools. Created on first use. Exported for the shared db/mongo modules
+ * that take a Queryable (fileFieldReport); Route Handlers use the helpers below.
+ */
+export function getPool(): Pool {
   cache.__erasMysqlPool ??= mysql.createPool({
     host: requireEnv("MYSQL_HOST"),
     port: Number(requireEnv("MYSQL_PORT")),
@@ -40,7 +44,7 @@ function pool(): Pool {
 
 /** Rows of a SELECT. T describes one row; it isn't checked at runtime. */
 export async function query<T = RowDataPacket>(sql: string, params?: unknown[]): Promise<T[]> {
-  const [rows] = await pool().query<RowDataPacket[]>(sql, params);
+  const [rows] = await getPool().query<RowDataPacket[]>(sql, params);
   return rows as T[];
 }
 
@@ -52,7 +56,7 @@ export async function queryOne<T = RowDataPacket>(sql: string, params?: unknown[
 
 /** An INSERT / UPDATE / DELETE: affectedRows, insertId, … */
 export async function execute(sql: string, params?: unknown[]): Promise<ResultSetHeader> {
-  const [result] = await pool().query<ResultSetHeader>(sql, params);
+  const [result] = await getPool().query<ResultSetHeader>(sql, params);
   return result;
 }
 
@@ -62,7 +66,7 @@ export async function execute(sql: string, params?: unknown[]): Promise<ResultSe
  * back. A connection whose rollback failed is destroyed, not reused.
  */
 export async function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
-  const conn = await pool().getConnection();
+  const conn = await getPool().getConnection();
   let reusable = true;
   try {
     await conn.beginTransaction();
