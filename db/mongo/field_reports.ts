@@ -1,6 +1,14 @@
 import type { Db } from "mongodb";
-import { EMERGENCY_TYPES } from "../../src/lib/enums";
-import { OTHER_TYPES, REPORT_LIMITS as L, TRENDS } from "../../src/lib/validators/observations";
+import { EMERGENCY_TYPES, type Role, type Severity } from "../../src/lib/enums";
+import { istToDate } from "../../src/lib/ist";
+import {
+  type ObservationInput,
+  OTHER_TYPES,
+  REPORT_LIMITS as L,
+  TRENDS,
+} from "../../src/lib/validators/observations";
+import { insertActivity } from "./activity_log";
+import { type Queryable, selectRows } from "./queryable";
 import type { CollectionModule } from "./setup";
 
 // field_reports (docs/HANDOFF.md 4.4): one document per impact_observation
@@ -144,3 +152,130 @@ export const fieldReports: CollectionModule = {
   name: FIELD_REPORTS,
   setup: (db) => createFieldReports(db),
 };
+
+// ---------------------------------------------------------------------------
+// Writing reports (docs/HANDOFF.md 4.4). POST /api/observations, mongo:test
+// and P2.3's seed all go through these, so every report is written the same way.
+// ---------------------------------------------------------------------------
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** What a report says: its type, details and optional sections (the request body minus the MySQL fields). */
+export type ReportContent = DistributiveOmit<ObservationInput, "impact_id" | "affected_percentage" | "severity" | "location">;
+
+/** Who filed it. role is for the activity entry; the document keeps user_id and name. */
+export type Reporter = { user_id: number; name: string; role: Role };
+
+/** A report for an observation row that already exists. */
+export type FieldReportInput = {
+  observation_id: number;
+  emergency_id: number;
+  impact_id: number;
+  reported_by: Reporter;
+  /** The observation's observed_at as an instant (istToDate). */
+  reported_at: Date;
+  location: { lat: number; lng: number };
+  report: ReportContent;
+};
+
+/** The field_reports document for input. Optional sections that are absent stay absent (never null). */
+export function buildReportDoc(input: FieldReportInput) {
+  const { emergency_type, details, ...optional } = input.report;
+  const sections = Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined));
+  return {
+    emergency_id: input.emergency_id,
+    impact_id: input.impact_id,
+    observation_id: input.observation_id,
+    emergency_type,
+    reported_by: { user_id: input.reported_by.user_id, name: input.reported_by.name },
+    reported_at: input.reported_at,
+    location: { type: "Point" as const, coordinates: [input.location.lng, input.location.lat] },
+    details,
+    ...sections,
+  };
+}
+
+/**
+ * Inserts the report for an existing observation, then its FIELD_REPORT_FILED
+ * entry (ts = reported_at). Throws if the report insert fails. A failed
+ * activity write is logged and swallowed: it never undoes the report.
+ * P2.3 uses this directly to add reports for the 38 seeded observations.
+ */
+export async function insertFieldReport(db: Db, input: FieldReportInput): Promise<void> {
+  await db.collection(FIELD_REPORTS).insertOne(buildReportDoc(input));
+  try {
+    await insertActivity(db, [
+      {
+        ts: input.reported_at,
+        actor: input.reported_by,
+        action: "FIELD_REPORT_FILED",
+        entity: { type: "FIELD_REPORT", id: input.observation_id },
+        refs: { emergency_id: input.emergency_id },
+        payload: { impact_id: input.impact_id, emergency_type: input.report.emergency_type },
+      },
+    ]);
+  } catch (err) {
+    console.error("insertFieldReport: activity entry not written:", describe(err));
+  }
+}
+
+/** A new observation and its report. */
+export type FileFieldReportInput = Omit<FieldReportInput, "observation_id" | "reported_at"> & {
+  affected_percentage: number;
+  severity: Severity;
+  /** IST "YYYY-MM-DD HH:MM:SS"; the API leaves it out (MySQL NOW()), P2.3's seed sets it. */
+  observed_at?: string;
+};
+
+/**
+ * The cross-database write, in the 4.4 order:
+ *  1. INSERT impact_observation (autocommit, so it's committed) and read back observed_at.
+ *  2. insertFieldReport with that observation_id and reported_at = observed_at.
+ *  3. If 2 fails, DELETE the observation (compensation) and rethrow the original
+ *     error unchanged. If the DELETE fails too, log both and throw a plain Error.
+ *
+ * Known gap: a crash between 1 and 3 leaves an observation without a report.
+ * A standalone mongod has no transactions across the two databases (no 2PC).
+ * The caller checks the impact, the emergency's type and its status first.
+ */
+export async function fileFieldReport(
+  db: Db,
+  mysql: Queryable,
+  input: FileFieldReportInput,
+): Promise<{ observation_id: number; reported_at: Date }> {
+  const [result] = await mysql.query(
+    `INSERT INTO impact_observation (impact_id, user_id, observed_at, affected_percentage, severity)
+     VALUES (?, ?, COALESCE(?, NOW()), ?, ?)`,
+    [input.impact_id, input.reported_by.user_id, input.observed_at ?? null, input.affected_percentage, input.severity],
+  );
+  const observationId = (result as { insertId: number }).insertId;
+
+  try {
+    const [row] = await selectRows<{ observed_at: string }>(
+      mysql,
+      "SELECT observed_at FROM impact_observation WHERE observation_id = ?",
+      [observationId],
+    );
+    const reportedAt = istToDate(row?.observed_at);
+    await insertFieldReport(db, { ...input, observation_id: observationId, reported_at: reportedAt });
+    return { observation_id: observationId, reported_at: reportedAt };
+  } catch (err) {
+    try {
+      await mysql.query("DELETE FROM impact_observation WHERE observation_id = ?", [observationId]);
+    } catch (deleteErr) {
+      console.error(`fileFieldReport: the report failed and observation ${observationId} couldn't be removed`, {
+        report: describe(err),
+        delete: describe(deleteErr),
+      });
+      throw new Error(`Field report failed and its observation ${observationId} couldn't be removed`);
+    }
+    throw err;
+  }
+}
+
+/** What to log for an error: never the document (MongoDB's errInfo / keyValue) or the SQL. */
+function describe(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { value: String(err) };
+  const { code } = err as Error & { code?: unknown };
+  return { name: err.name, code, message: err.message };
+}
