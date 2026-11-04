@@ -6,7 +6,8 @@
  *     DELIMITER, which only the CLI understands).
  *  2. Recreate the app user (MYSQL_USER) with SELECT/INSERT/UPDATE/DELETE/EXECUTE
  *     on that database only.
- *  3. MongoDB: drop the database and run db/mongo/setup.ts.
+ *  3. MongoDB: drop the database and run db/mongo/setup.ts, which reads (and
+ *     may write) MySQL as the app user.
  *  4. Print row counts.
  *
  * Needs .env.local (copy .env.example) and the mysql CLI on PATH.
@@ -96,8 +97,22 @@ async function resetMongo(env: Env): Promise<Record<string, number>> {
     const db = client.db(env.MONGODB_DB);
     await db.dropDatabase();
     console.log(`  dropped database ${env.MONGODB_DB}`);
-    await setupMongo(db);
-    console.log("  ran db/mongo/setup.ts");
+    // The modules read (and Part 2's seed writes) MySQL as the app user, with the app pool's settings.
+    const app = await mysql.createConnection({
+      host: env.MYSQL_HOST,
+      port: Number(env.MYSQL_PORT),
+      user: env.MYSQL_USER,
+      password: env.MYSQL_PASSWORD,
+      database: env.MYSQL_DATABASE,
+      dateStrings: true,
+      decimalNumbers: true,
+    });
+    try {
+      await setupMongo(db, app);
+    } finally {
+      await app.end();
+    }
+    console.log(`  ran db/mongo/setup.ts (MySQL as ${env.MYSQL_USER})`);
 
     const counts: Record<string, number> = {};
     const collections = await db.listCollections({}, { nameOnly: true }).toArray();
