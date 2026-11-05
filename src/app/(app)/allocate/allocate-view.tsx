@@ -6,6 +6,7 @@ import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-t
 import { Skeleton } from "@/components/ui/skeleton";
 import type { QueueRow } from "@/lib/allocation-types";
 import { useApi } from "@/lib/client";
+import { idParam } from "@/lib/validators/common";
 import { InlineError, StatusBadge, ToneBadge } from "./bits";
 import { formatIst, formatQty } from "./format";
 import { ItemPanel } from "./item-panel";
@@ -101,9 +102,10 @@ const FILTERS = [
   { column: "resource_name", placeholder: "Filter resource…" },
 ];
 
-/** ?item= as a request_item_id, or null when it's missing or not a positive whole number. */
+/** ?item= as a request_item_id (the API's own rule), or null when it's missing or not one. */
 function itemFromParam(value: string | null): number | null {
-  return value && /^[1-9]\d{0,9}$/.test(value) ? Number(value) : null;
+  const parsed = idParam.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 export function AllocateView() {
@@ -125,14 +127,16 @@ export function AllocateView() {
         center, earliest expiry first) and its allocations.
       </p>
 
-      {queue.error ? (
-        <InlineError error={queue.error} onRetry={() => void queue.mutate()} />
-      ) : !queue.data ? (
-        <div className="flex flex-col gap-2" aria-busy>
-          {Array.from({ length: 8 }, (_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+      {/* A failed refetch keeps the last good queue on screen, with the error above it. */}
+      {queue.error && <InlineError error={queue.error} onRetry={() => void queue.mutate()} />}
+      {!queue.data ? (
+        !queue.error && (
+          <div className="flex flex-col gap-2" aria-busy>
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        )
       ) : (
         <DataTable
           columns={columns}
@@ -146,13 +150,7 @@ export function AllocateView() {
         />
       )}
 
-      <ItemPanel
-        itemId={itemId}
-        queueRow={queue.data?.find((r) => r.request_item_id === itemId)}
-        queueLoaded={queue.data !== undefined}
-        refreshQueue={() => queue.mutate()}
-        onClose={closeItem}
-      />
+      <ItemPanel itemId={itemId} queue={queue.data} refreshQueue={queue.mutate} onClose={closeItem} />
     </div>
   );
 }

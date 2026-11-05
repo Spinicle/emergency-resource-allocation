@@ -44,17 +44,18 @@ import { ScoreBreakdown } from "./score-breakdown";
 
 const failure = (err: unknown) => (err instanceof ApiError ? err.message : "Something went wrong");
 
-type PanelProps = {
+export function ItemPanel({
+  itemId,
+  queue,
+  refreshQueue,
+  onClose,
+}: {
   itemId: number | null;
-  /** The item's queue row, if it's in the queue. */
-  queueRow: QueueRow | undefined;
-  /** False until the queue has loaded once, so "left the queue" isn't shown while it's still coming. */
-  queueLoaded: boolean;
+  /** The queue's rows; undefined until it has loaded. */
+  queue: QueueRow[] | undefined;
   refreshQueue: () => Promise<unknown>;
   onClose: () => void;
-};
-
-export function ItemPanel({ itemId, onClose, ...rest }: PanelProps) {
+}) {
   // Keep the last item while the sheet animates closed, so it doesn't go blank.
   const [shownId, setShownId] = useState(itemId);
   if (itemId !== null && itemId !== shownId) setShownId(itemId);
@@ -65,7 +66,16 @@ export function ItemPanel({ itemId, onClose, ...rest }: PanelProps) {
         side="right"
         className="w-full gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
       >
-        {shownId !== null && <PanelBody key={shownId} itemId={shownId} {...rest} />}
+        {shownId !== null && (
+          <PanelBody
+            key={shownId}
+            itemId={shownId}
+            // Looked up by shownId, not itemId, so closing doesn't flash "left the queue".
+            queueRow={queue?.find((r) => r.request_item_id === shownId)}
+            queueLoaded={queue !== undefined}
+            refreshQueue={refreshQueue}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );
@@ -76,13 +86,23 @@ function PanelBody({
   queueRow,
   queueLoaded,
   refreshQueue,
-}: Omit<PanelProps, "itemId" | "onClose"> & { itemId: number }) {
+}: {
+  itemId: number;
+  /** The item's queue row, if it's in the queue. */
+  queueRow: QueueRow | undefined;
+  /** False until the queue has loaded once, so "left the queue" isn't shown while it's still coming. */
+  queueLoaded: boolean;
+  refreshQueue: () => Promise<unknown>;
+}) {
   const detail = useApi<ItemAllocations>(`/api/allocations?item=${itemId}`);
   const item = detail.data?.item;
   const isOpen = item?.item_status === "PENDING" || item?.item_status === "PARTIAL";
-  // Only once the item is known to be open: a bad id gets one "not found", and closed items skip the call.
-  const suggestions = useApi<SuggestionRow[]>(isOpen ? `/api/allocations/suggestions?item=${itemId}` : null);
   const leftQueue = queueLoaded && item !== undefined && queueRow === undefined;
+  // Only once the item is known to be open (and not known to be out of the queue): a bad id gets
+  // one "not found", and closed items skip the call.
+  const suggestions = useApi<SuggestionRow[]>(
+    isOpen && !leftQueue ? `/api/allocations/suggestions?item=${itemId}` : null,
+  );
 
   const { mutate: mutateDetail } = detail;
   const { mutate: mutateSuggestions } = suggestions;
@@ -106,12 +126,16 @@ function PanelBody({
       </SheetHeader>
 
       <div className="flex flex-col gap-6 p-4">
-        {detail.error ? (
-          <InlineError error={detail.error} onRetry={() => void detail.mutate()} />
-        ) : !item ? (
-          <Skeleton className="h-40 w-full" />
+        {!item ? (
+          detail.error ? (
+            <InlineError error={detail.error} onRetry={() => void detail.mutate()} />
+          ) : (
+            <Skeleton className="h-40 w-full" />
+          )
         ) : (
           <>
+            {/* A failed refetch keeps the last good data on screen, with the error above it. */}
+            {detail.error && <InlineError error={detail.error} onRetry={() => void detail.mutate()} />}
             <ItemSummary item={item} />
 
             {queueRow ? (
@@ -125,10 +149,11 @@ function PanelBody({
             {isOpen && !leftQueue && (
               <section className="flex flex-col gap-2">
                 <h3 className="font-medium">Suggested batches</h3>
-                {suggestions.error ? (
+                {suggestions.error && (
                   <InlineError error={suggestions.error} onRetry={() => void suggestions.mutate()} />
-                ) : !suggestions.data ? (
-                  <Skeleton className="h-28 w-full" />
+                )}
+                {!suggestions.data ? (
+                  !suggestions.error && <Skeleton className="h-28 w-full" />
                 ) : suggestions.data.length === 0 ? (
                   <EmptySuggestions item={item} />
                 ) : (
@@ -197,7 +222,7 @@ function EmptySuggestions({ item }: { item: ItemState }) {
   return (
     <div className="flex flex-col items-center gap-1 rounded-md border border-dashed p-6 text-center">
       <PackageOpen className="size-6 text-muted-foreground" />
-      <span className="font-medium">No usable {item.resource_name.toLowerCase()} at any open center</span>
+      <span className="font-medium">No usable stock of {item.resource_name} at any open center</span>
       <span className="text-muted-foreground">
         Every batch is empty, expired, or at a CLOSED center. {formatQty(item.quantity_remaining)} {item.unit} still
         needed.

@@ -17,12 +17,13 @@ type Part = {
   input: (r: QueueRow) => string;
 };
 
-const DEADLINE: Record<string, string> = {
-  "1": "overdue or due within 6 h",
-  "0.6": "due within 24 h",
-  "0.2": "due later",
-  "0": "no deadline",
-};
+/** D's bands (Appendix C), read from the part itself rather than re-deriving them from the clock. */
+function deadlineLabel(r: QueueRow): string {
+  if (r.required_by === null) return "no deadline";
+  if (r.d_part >= 1) return "overdue or due within 6 h";
+  if (r.d_part >= 0.6) return "due within 24 h";
+  return "due later";
+}
 
 const PARTS: Part[] = [
   { key: "u", label: "Urgency", color: "bg-chart-1", points: (r) => r.u_points, input: (r) => r.urgency },
@@ -52,7 +53,7 @@ const PARTS: Part[] = [
     label: "Deadline",
     color: "bg-chart-5",
     points: (r) => r.d_points,
-    input: (r) => DEADLINE[String(r.d_part)] ?? `pressure ${r.d_part}`,
+    input: deadlineLabel,
   },
 ];
 
