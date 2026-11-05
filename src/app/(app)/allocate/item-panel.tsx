@@ -29,7 +29,7 @@ import type {
   SuggestionRow,
 } from "@/lib/allocation-types";
 import { ApiError, api, useApi } from "@/lib/client";
-import { allocationQuantity } from "@/lib/validators/allocations";
+import { quantitySchema } from "@/lib/validators/common";
 import { InlineError, StatusBadge, ToneBadge } from "./bits";
 import { formatIst, formatQty, toCents } from "./format";
 import { ScoreBreakdown } from "./score-breakdown";
@@ -43,6 +43,19 @@ import { ScoreBreakdown } from "./score-breakdown";
 // suggestion rank is the order, and a pager has no place in a side panel.
 
 const failure = (err: unknown) => (err instanceof ApiError ? err.message : "Something went wrong");
+
+/** Where the item stands in the queue, as far as the page knows. */
+type QueueStanding =
+  | { kind: "loading" } // the queue hasn't loaded yet
+  | { kind: "failed" } // it failed before it ever loaded (the page shows that error)
+  | { kind: "in"; row: QueueRow }
+  | { kind: "out" }; // loaded, and the item isn't in it (FULFILLED, CANCELLED, CLOSED emergency…)
+
+function standingOf(itemId: number, queue: QueueRow[] | undefined, queueFailed: boolean): QueueStanding {
+  if (!queue) return { kind: queueFailed ? "failed" : "loading" };
+  const row = queue.find((r) => r.request_item_id === itemId);
+  return row ? { kind: "in", row } : { kind: "out" };
+}
 
 export function ItemPanel({
   itemId,
@@ -73,10 +86,8 @@ export function ItemPanel({
           <PanelBody
             key={shownId}
             itemId={shownId}
-            // Looked up by shownId, not itemId, so closing doesn't flash "left the queue".
-            queueRow={queue?.find((r) => r.request_item_id === shownId)}
-            queueLoaded={queue !== undefined}
-            queueFailed={queueFailed}
+            // By shownId, not itemId, so closing doesn't flash "left the queue".
+            standing={standingOf(shownId, queue, queueFailed)}
             refreshQueue={refreshQueue}
           />
         )}
@@ -87,24 +98,17 @@ export function ItemPanel({
 
 function PanelBody({
   itemId,
-  queueRow,
-  queueLoaded,
-  queueFailed,
+  standing,
   refreshQueue,
 }: {
   itemId: number;
-  /** The item's queue row, if it's in the queue. */
-  queueRow: QueueRow | undefined;
-  /** False until the queue has loaded once, so "left the queue" isn't shown while it's still coming. */
-  queueLoaded: boolean;
-  /** The queue failed before it ever loaded: no score to wait for. */
-  queueFailed: boolean;
+  standing: QueueStanding;
   refreshQueue: () => Promise<unknown>;
 }) {
   const detail = useApi<ItemAllocations>(`/api/allocations?item=${itemId}`);
   const item = detail.data?.item;
   const isOpen = item?.item_status === "PENDING" || item?.item_status === "PARTIAL";
-  const leftQueue = queueLoaded && item !== undefined && queueRow === undefined;
+  const leftQueue = standing.kind === "out";
   // Only once the item is known to be open (and not known to be out of the queue): a bad id gets
   // one "not found", and closed items skip the call.
   const suggestions = useApi<SuggestionRow[]>(
@@ -145,13 +149,7 @@ function PanelBody({
             {detail.error && <InlineError error={detail.error} onRetry={() => void detail.mutate()} />}
             <ItemSummary item={item} />
 
-            {queueRow ? (
-              <ScoreBreakdown row={queueRow} />
-            ) : leftQueue ? (
-              <LeftQueueNotice item={item} />
-            ) : queueFailed ? null : (
-              <Skeleton className="h-36 w-full" />
-            )}
+            <Standing standing={standing} item={item} />
 
             {isOpen && !leftQueue && (
               <section className="flex flex-col gap-2">
@@ -208,6 +206,20 @@ function ItemSummary({ item }: { item: ItemState }) {
   );
 }
 
+/** The score area: the breakdown while it's in the queue, a notice once it has left, nothing if the queue failed. */
+function Standing({ standing, item }: { standing: QueueStanding; item: ItemState }) {
+  switch (standing.kind) {
+    case "in":
+      return <ScoreBreakdown row={standing.row} />;
+    case "out":
+      return <LeftQueueNotice item={item} />;
+    case "loading":
+      return <Skeleton className="h-36 w-full" />;
+    case "failed":
+      return null;
+  }
+}
+
 function LeftQueueNotice({ item }: { item: ItemState }) {
   const why =
     item.item_status === "FULFILLED"
@@ -249,7 +261,7 @@ function parseQty(text: string): { value: number; valid: boolean } {
   if (text.trim() === "") return { value: 0, valid: true };
   const value = Number(text);
   if (value === 0) return { value: 0, valid: true };
-  return { value, valid: allocationQuantity.safeParse(value).success };
+  return { value, valid: quantitySchema.safeParse(value).success };
 }
 
 const initialDraft = (rows: SuggestionRow[]) =>

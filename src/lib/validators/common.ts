@@ -20,8 +20,16 @@ export const idParam = z
   .transform(Number)
   .pipe(z.number().max(MAX_ID, "Must be a positive whole number"));
 
-/** An optional id filter in a query string: missing or empty (`?center=`) means "no filter". */
-export const optionalIdParam = z.preprocess((v) => (v === "" ? undefined : v), idParam.optional());
+/**
+ * An optional query-string filter: missing or empty (`?center=`, what a form's
+ * "All" option sends) both mean "no filter"; anything else must pass schema.
+ */
+export function optionalQueryParam<S extends z.ZodType>(schema: S) {
+  return z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+}
+
+/** An optional id filter in a query string. */
+export const optionalIdParam = optionalQueryParam(idParam);
 
 /** The largest DECIMAL(12,2): every quantity column. */
 export const MAX_QUANTITY = 9_999_999_999.99;

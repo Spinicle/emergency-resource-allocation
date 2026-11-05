@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ALLOCATION_STATUSES } from "../enums";
-import { idParam, idSchema, MAX_QUANTITY, optionalIdParam, quantitySchema } from "./common";
+import { idParam, idSchema, MAX_QUANTITY, optionalIdParam, optionalQueryParam, quantitySchema } from "./common";
 
 // /api/stock/* (docs/HANDOFF.md 4.10). Only the shape is checked here: the
 // procedures and triggers refuse everything else (a write-off that adds stock,
@@ -17,7 +17,7 @@ export const stockListQuery = z.object({ center: optionalIdParam, resource: opti
 /** GET /api/stock/allocations?center=&status= */
 export const centerAllocationsQuery = z.object({
   center: optionalIdParam,
-  status: z.preprocess((v) => (v === "" ? undefined : v), z.enum(ALLOCATION_STATUSES).optional()),
+  status: optionalQueryParam(z.enum(ALLOCATION_STATUSES)),
 });
 
 /** /api/stock/[id]/… */
