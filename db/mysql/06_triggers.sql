@@ -14,6 +14,9 @@
 --      (ALLOCATION_CANCELLED). Both ledger rows carry the allocation_id.
 --   5. Item status is derived from its allocations (CANCELLED stays CANCELLED).
 --   6. Request status is rolled up from its items.
+--   7. The ids of allocation, stock and request_item never change: their FKs
+--      cascade (into stock_ledger and allocation), and FK actions fire no
+--      triggers, so a changed id would bypass the rules above.
 --
 -- Locking. Checks and recomputes lock rows FOR UPDATE in one order before they
 -- read anything else:
@@ -213,6 +216,9 @@ DROP TRIGGER IF EXISTS trg_allocation_bu $$
 CREATE TRIGGER trg_allocation_bu BEFORE UPDATE ON allocation
 FOR EACH ROW
 BEGIN
+    IF NOT (NEW.allocation_id <=> OLD.allocation_id) THEN
+        CALL sp_raise('Allocation allocation_id can''t change');
+    END IF;
     IF NOT (NEW.request_item_id <=> OLD.request_item_id) THEN
         CALL sp_raise('Allocation request_item_id can''t change');
     END IF;
@@ -269,6 +275,9 @@ DROP TRIGGER IF EXISTS trg_stock_bu $$
 CREATE TRIGGER trg_stock_bu BEFORE UPDATE ON stock
 FOR EACH ROW
 BEGIN
+    IF NOT (NEW.stock_id <=> OLD.stock_id) THEN
+        CALL sp_raise('Batch stock_id can''t change');
+    END IF;
     IF NEW.quantity_available < 0 THEN
         CALL sp_raise('Insufficient stock in this batch');
     END IF;
@@ -345,6 +354,10 @@ FOR EACH ROW
 BEGIN
     DECLARE v_request_id INT;
     DECLARE v_derived VARCHAR(30);
+
+    IF NOT (NEW.request_item_id <=> OLD.request_item_id) THEN
+        CALL sp_raise('Request item request_item_id can''t change');
+    END IF;
 
     -- The UPDATE already holds this item's lock; take the request's before any plain read.
     SELECT request_id INTO v_request_id

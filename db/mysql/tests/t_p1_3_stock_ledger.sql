@@ -180,6 +180,11 @@ CALL sp_test_expect(CONCAT('UPDATE stock SET center_id = ', @c_far, ' WHERE stoc
 SET @c = 'move an allocated batch to another center', @e = '1644: A batch''s resource and center can''t change once it has allocations',
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+-- The id cascades into allocation and stock_ledger (FK actions fire no triggers).
+CALL sp_test_expect(CONCAT('UPDATE stock SET stock_id = stock_id + 1000000 WHERE stock_id = ', @b_far), @errno, @msg);
+SET @c = 'batch id is fixed', @e = '1644: Batch stock_id can''t change',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
 -- ---- T18: the ledger agrees with the stock, for every fixture batch ----
 SET @c = 'T18 running SUM(change_qty) <> balance_after (rows)', @e = 0,

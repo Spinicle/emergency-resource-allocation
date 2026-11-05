@@ -351,6 +351,11 @@ CALL sp_test_expect(CONCAT('UPDATE allocation SET allocated_at = allocated_at - 
 SET @c = 'allocation time is fixed', @e = '1644: Allocation allocated_at can''t change',
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+-- The id cascades into stock_ledger (FK actions fire no triggers), so it's fixed too.
+CALL sp_test_expect(CONCAT('UPDATE allocation SET allocation_id = allocation_id + 1000000 WHERE allocation_id = ', @a_food), @errno, @msg);
+SET @c = 'allocation id is fixed', @e = '1644: Allocation allocation_id can''t change',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 -- The app user gets the generic FK errors 1217/1216; only accounts with more
 -- privileges see the detailed 1451/1452.
 CALL sp_test_expect(CONCAT('DELETE FROM allocation WHERE allocation_id = ', @a_food), @errno, @msg);

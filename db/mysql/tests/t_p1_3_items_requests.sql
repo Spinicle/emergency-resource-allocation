@@ -164,6 +164,11 @@ CALL sp_test_expect(CONCAT('UPDATE request_item SET resource_id = ', @r_kit, ' W
 SET @c = 'change an allocated item''s resource', @e = '1644: An item''s resource can''t change once it has allocations',
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+-- The id cascades into allocation (FK actions fire no triggers), so it's fixed.
+CALL sp_test_expect(CONCAT('UPDATE request_item SET request_item_id = request_item_id + 1000000 WHERE request_item_id = ', @g1), @errno, @msg);
+SET @c = 'item id is fixed', @e = '1644: Request item request_item_id can''t change',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
 CALL sp_test_expect(CONCAT('UPDATE request_item SET status = ''CANCELLED'' WHERE request_item_id = ', @g2), @errno, @msg);
 SET @c = 'cancel an item with no allocations', @e = '0: ', @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
