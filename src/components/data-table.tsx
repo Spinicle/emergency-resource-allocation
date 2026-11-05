@@ -63,6 +63,9 @@ export function DataTable<TData extends RowData>({
   filters = [],
   pageSize = 20,
   emptyMessage = "No rows.",
+  getRowId,
+  onRowClick,
+  selectedRowId,
 }: {
   /** From dataTableColumns<Row>().columns([...]); keep it stable (module scope or useMemo). */
   columns: ColumnDef<DataTableFeatures, TData>[];
@@ -70,11 +73,18 @@ export function DataTable<TData extends RowData>({
   filters?: DataTableFilter[];
   pageSize?: number;
   emptyMessage?: string;
+  /** A stable id per row (e.g. its primary key); needed for selectedRowId. Defaults to the row's index. */
+  getRowId?: (row: TData) => string;
+  /** Makes rows clickable (and focusable: Enter or Space opens them too). */
+  onRowClick?: (row: TData) => void;
+  /** The id (from getRowId) of the row to highlight. */
+  selectedRowId?: string | null;
 }) {
   const table = useTable({
     features: dataTableFeatures,
     columns,
     data,
+    ...(getRowId && { getRowId: (row: TData) => getRowId(row) }),
     initialState: { pagination: { pageIndex: 0, pageSize } },
   });
 
@@ -115,7 +125,20 @@ export function DataTable<TData extends RowData>({
           <TableBody>
             {rows.length > 0 ? (
               rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  data-state={selectedRowId != null && row.id === selectedRowId ? "selected" : undefined}
+                  {...(onRowClick && {
+                    tabIndex: 0,
+                    className: "cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none",
+                    onClick: () => onRowClick(row.original),
+                    onKeyDown: (e: React.KeyboardEvent) => {
+                      if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                      e.preventDefault();
+                      onRowClick(row.original);
+                    },
+                  })}
+                >
                   {row.getAllCells().map((cell) => (
                     <TableCell key={cell.id} className="py-1.5">
                       <table.FlexRender cell={cell} />
