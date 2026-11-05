@@ -1,5 +1,5 @@
 import "server-only";
-import type { PoolConnection, RowDataPacket } from "mysql2/promise";
+import type { PoolConnection } from "mysql2/promise";
 import type { ActivityAction } from "@/lib/activity";
 import type { AllocationRow, ItemState } from "@/lib/allocation-types";
 import type { Session } from "@/lib/auth";
@@ -28,10 +28,8 @@ const ITEM_STATE_SQL = `
  * One item's status and quantities, or null if it doesn't exist. Pass conn to
  * read inside a transaction (it sees that transaction's own writes).
  */
-export async function loadItemState(itemId: number, conn?: PoolConnection): Promise<ItemState | null> {
-  if (!conn) return queryOne<ItemState>(ITEM_STATE_SQL, [itemId]);
-  const [rows] = await conn.query<RowDataPacket[]>(ITEM_STATE_SQL, [itemId]);
-  return (rows[0] as ItemState | undefined) ?? null;
+export function loadItemState(itemId: number, conn?: PoolConnection): Promise<ItemState | null> {
+  return queryOne<ItemState>(ITEM_STATE_SQL, [itemId], conn);
 }
 
 const ALLOCATION_SQL = `

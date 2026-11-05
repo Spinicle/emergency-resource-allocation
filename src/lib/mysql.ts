@@ -42,15 +42,23 @@ export function getPool(): Pool {
   return cache.__erasMysqlPool;
 }
 
-/** Rows of a SELECT. T describes one row; it isn't checked at runtime. */
-export async function query<T = RowDataPacket>(sql: string, params?: unknown[]): Promise<T[]> {
-  const [rows] = await getPool().query<RowDataPacket[]>(sql, params);
+/**
+ * Rows of a SELECT. T describes one row; it isn't checked at runtime. Pass the
+ * withTransaction connection as conn to read inside that transaction (it sees
+ * the transaction's own writes); otherwise the pool runs it.
+ */
+export async function query<T = RowDataPacket>(sql: string, params?: unknown[], conn?: PoolConnection): Promise<T[]> {
+  const [rows] = await (conn ?? getPool()).query<RowDataPacket[]>(sql, params);
   return rows as T[];
 }
 
-/** The first row of a SELECT, or null. */
-export async function queryOne<T = RowDataPacket>(sql: string, params?: unknown[]): Promise<T | null> {
-  const rows = await query<T>(sql, params);
+/** The first row of a SELECT, or null. conn as in query(). */
+export async function queryOne<T = RowDataPacket>(
+  sql: string,
+  params?: unknown[],
+  conn?: PoolConnection,
+): Promise<T | null> {
+  const rows = await query<T>(sql, params, conn);
   return rows[0] ?? null;
 }
 

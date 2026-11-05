@@ -1,8 +1,7 @@
-import type { RowDataPacket } from "mysql2/promise";
 import type { CreateAllocationsResult, ItemAllocations } from "@/lib/allocation-types";
 import { loadItemAllocations, loadItemState, logAllocationEvents } from "@/lib/allocations";
 import { handle, HttpError, ok, parseJson, parseQuery } from "@/lib/http";
-import { withTransaction } from "@/lib/mysql";
+import { queryOne, withTransaction } from "@/lib/mysql";
 import { requireRole } from "@/lib/rbac";
 import { createAllocationsSchema, itemQuery } from "@/lib/validators/allocations";
 
@@ -43,8 +42,8 @@ export const POST = handle(async (req) => {
         quantity,
         session.userId,
       ]);
-      const [rows] = await conn.query<RowDataPacket[]>("SELECT @eras_allocation_id AS allocation_id");
-      allocations.push({ allocation_id: Number(rows[0].allocation_id), stock_id, quantity });
+      const out = await queryOne<{ allocation_id: number }>("SELECT @eras_allocation_id AS allocation_id", [], conn);
+      allocations.push({ allocation_id: Number(out?.allocation_id), stock_id, quantity });
     }
     // Read inside the transaction: this item and its request are locked by the CALLs above.
     const item = await loadItemState(request_item_id, conn);
