@@ -18,11 +18,20 @@ export const ACTIVITY_ACTIONS = [
   "STOCK_ADJUSTED",
   "STOCK_WRITTEN_OFF",
   "FIELD_REPORT_FILED",
+  // Part 2 (P2.1): entity EMERGENCY or IMPACT, refs.emergency_id on each.
+  "EMERGENCY_CREATED",
+  "EMERGENCY_UPDATED",
+  "EMERGENCY_CLOSED",
+  "IMPACT_ADDED",
+  "IMPACT_UPDATED",
 ] as const;
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
 
-/** What an entry is about. STOCK is one batch (stock_id); FIELD_REPORT is keyed by observation_id. */
-export const ACTIVITY_ENTITY_TYPES = ["REQUEST", "ALLOCATION", "STOCK", "FIELD_REPORT"] as const;
+/**
+ * What an entry is about. STOCK is one batch (stock_id); FIELD_REPORT is keyed
+ * by observation_id; EMERGENCY by emergency_id and IMPACT by impact_id (P2.1).
+ */
+export const ACTIVITY_ENTITY_TYPES = ["REQUEST", "ALLOCATION", "STOCK", "FIELD_REPORT", "EMERGENCY", "IMPACT"] as const;
 export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number];
 
 /**
