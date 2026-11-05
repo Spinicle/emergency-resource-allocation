@@ -3,7 +3,7 @@ import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { ActivityAction } from "@/lib/activity";
 import type { AllocationRow, ItemState } from "@/lib/allocation-types";
 import type { Session } from "@/lib/auth";
-import { logActivity } from "@/lib/mongo";
+import { logActivities } from "@/lib/mongo";
 import { query, queryOne } from "@/lib/mysql";
 
 // Allocation reads shared by /api/allocations/* (P1.8) and dispatch/deliver
@@ -108,23 +108,23 @@ export async function logAllocationEvents(actor: Session, action: AllocationActi
     console.error(`logAllocationEvents(${action}) couldn't load allocations ${ids.join(", ")}:`, (err as Error).message);
     return;
   }
-  for (const ev of events) {
-    const payload =
-      action === "ALLOCATION_CANCELLED"
-        ? {
-            ledger_id: ev.ledger_id,
-            change_qty: ev.change_qty,
-            balance_after: ev.balance_after,
-            batch_code: ev.batch_code,
-            resource: ev.resource,
-          }
-        : { quantity: ev.quantity, resource: ev.resource, batch_code: ev.batch_code };
-    await logActivity({
-      actor,
+  // One insert for all of them (in allocation_id order), so MongoDB being down costs one wait.
+  await logActivities(
+    actor,
+    events.map((ev) => ({
       action,
       entity: { type: "ALLOCATION", id: ev.allocation_id },
       refs: { request_id: ev.request_id, emergency_id: ev.emergency_id, center_id: ev.center_id },
-      payload,
-    });
-  }
+      payload:
+        action === "ALLOCATION_CANCELLED"
+          ? {
+              ledger_id: ev.ledger_id,
+              change_qty: ev.change_qty,
+              balance_after: ev.balance_after,
+              batch_code: ev.batch_code,
+              resource: ev.resource,
+            }
+          : { quantity: ev.quantity, resource: ev.resource, batch_code: ev.batch_code },
+    })),
+  );
 }

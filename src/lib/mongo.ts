@@ -27,6 +27,14 @@ export async function getDb(): Promise<Db> {
   return client.db(requireEnv("MONGODB_DB"));
 }
 
+/** One thing the signed-in user did, for logActivity / logActivities. */
+export type ActivityInput = {
+  action: ActivityAction;
+  entity: { type: ActivityEntityType; id: number };
+  refs?: ActivityRefs;
+  payload?: Record<string, unknown>;
+};
+
 /**
  * Records what the signed-in user just did in activity_log, timestamped now.
  * Call it after the MySQL write has committed. Never throws: a failed write is
@@ -35,26 +43,38 @@ export async function getDb(): Promise<Db> {
  *   await logActivity({ actor: session, action: "REQUEST_CREATED",
  *     entity: { type: "REQUEST", id }, refs: { request_id: id, emergency_id } });
  */
-export async function logActivity(e: {
-  actor: Session;
-  action: ActivityAction;
-  entity: { type: ActivityEntityType; id: number };
-  refs?: ActivityRefs;
-  payload?: Record<string, unknown>;
-}): Promise<void> {
+export async function logActivity({ actor, ...entry }: ActivityInput & { actor: Session }): Promise<void> {
+  await logActivities(actor, [entry]);
+}
+
+/**
+ * Several entries from one request (a split's allocations), in one ordered
+ * insert, so an unreachable MongoDB costs one server-selection wait, not one
+ * per entry. Entry i is timestamped now + i ms, so a feed sorted by ts shows
+ * them in this order. Never throws, like logActivity.
+ */
+export async function logActivities(actor: Session, entries: ActivityInput[]): Promise<void> {
+  if (entries.length === 0) return;
+  const base = Date.now();
+  const who = { user_id: actor.userId, name: actor.name, role: actor.role };
   try {
-    await insertActivity(await getDb(), [
-      {
-        ts: new Date(),
-        actor: { user_id: e.actor.userId, name: e.actor.name, role: e.actor.role },
+    await insertActivity(
+      await getDb(),
+      entries.map((e, i) => ({
+        ts: new Date(base + i),
+        actor: who,
         action: e.action,
         entity: e.entity,
         ...(e.refs && { refs: e.refs }),
         ...(e.payload && { payload: e.payload }),
-      },
-    ]);
+      })),
+    );
   } catch (err) {
     const { name, message } = err instanceof Error ? err : { name: "Error", message: String(err) };
-    console.error(`logActivity(${e.action}) failed:`, { name, message });
+    const actions = [...new Set(entries.map((e) => e.action))].join(", ");
+    console.error(`logActivity(${actions}) failed for ${entries.length} entr${entries.length === 1 ? "y" : "ies"}:`, {
+      name,
+      message,
+    });
   }
 }
