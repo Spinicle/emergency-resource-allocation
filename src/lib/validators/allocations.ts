@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idParam, idSchema } from "./common";
+import { idParam, idSchema, quantitySchema } from "./common";
 
 // /api/allocations/* (docs/HANDOFF.md 4.9). Only the shape is checked here:
 // stock, remaining quantity, expiry and center/emergency status are the
@@ -10,15 +10,8 @@ import { idParam, idSchema } from "./common";
 /** The most batches one allocation request may split an item across. */
 export const MAX_SPLIT_BATCHES = 10;
 
-/** The largest DECIMAL(12,2). */
-export const MAX_QUANTITY = 9_999_999_999.99;
-
-/** A quantity to allocate: above 0, at most 2 decimal places (DECIMAL(12,2)). */
-export const allocationQuantity = z
-  .number()
-  .positive("Must be greater than 0")
-  .multipleOf(0.01, "At most 2 decimal places")
-  .max(MAX_QUANTITY);
+/** A quantity to allocate: the shared quantity rule (above 0, at most 2 decimal places). */
+export const allocationQuantity = quantitySchema;
 
 /** ?item=<request_item_id> */
 export const itemQuery = z.object({ item: idParam });

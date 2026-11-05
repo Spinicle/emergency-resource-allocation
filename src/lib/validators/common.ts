@@ -19,3 +19,16 @@ export const idParam = z
   .regex(/^[1-9]\d{0,9}$/, "Must be a positive whole number")
   .transform(Number)
   .pipe(z.number().max(MAX_ID, "Must be a positive whole number"));
+
+/** An optional id filter in a query string: missing or empty (`?center=`) means "no filter". */
+export const optionalIdParam = z.preprocess((v) => (v === "" ? undefined : v), idParam.optional());
+
+/** The largest DECIMAL(12,2): every quantity column. */
+export const MAX_QUANTITY = 9_999_999_999.99;
+
+/** A quantity (allocated, received): above 0, at most 2 decimal places. */
+export const quantitySchema = z
+  .number()
+  .positive("Must be greater than 0")
+  .multipleOf(0.01, "At most 2 decimal places")
+  .max(MAX_QUANTITY);
