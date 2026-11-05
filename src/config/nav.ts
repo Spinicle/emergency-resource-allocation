@@ -54,8 +54,9 @@ export const NAV: NavGroup[] = [
   {
     label: "Stock",
     items: [
-      { href: "/inventory", label: "Inventory", icon: Warehouse, roles: ["CENTER_MANAGER"], owner: "P2.6",
-        summary: "Your center's batches, adjustments, ledger and dispatches." },
+      // ADMIN too: three seeded centers have no manager. A CM stays on their own center; ADMIN picks one.
+      { href: "/inventory", label: "Inventory", icon: Warehouse, roles: ["ADMIN", "CENTER_MANAGER"], owner: "P2.6",
+        summary: "A center's batches, adjustments, ledger and dispatches." },
     ],
   },
   {
