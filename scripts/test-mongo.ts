@@ -19,7 +19,7 @@
  */
 import { type Db, Double, MongoClient } from "mongodb";
 import type { Connection } from "mysql2/promise";
-import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry } from "../src/lib/activity";
+import type { ActivityAction, ActivityEntry } from "../src/lib/activity";
 import { dateToIst, istToDate } from "../src/lib/ist";
 import { observationSchema } from "../src/lib/validators/observations";
 import { seedTime } from "../db/mongo/activity_backfill";
@@ -95,7 +95,9 @@ async function checkBackfill(db: Db, my: Connection): Promise<void> {
             (SELECT COUNT(*) FROM stock_ledger WHERE reason = 'ADJUSTMENT') AS STOCK_ADJUSTED,
             (SELECT COUNT(*) FROM stock_ledger WHERE reason = 'WRITE_OFF') AS STOCK_WRITTEN_OFF`,
   );
-  for (const action of ACTIVITY_ACTIONS.filter((a) => a !== "FIELD_REPORT_FILED")) {
+  // The backfilled actions are the columns above. Part 2 adds live-only actions
+  // to ACTIVITY_ACTIONS (HANDOFF 4.4), which the seed has none of.
+  for (const action of Object.keys(mysqlCounts) as ActivityAction[]) {
     const expected = Number(mysqlCounts[action]);
     check(`${action}: ${count(action)} entries = ${expected} in MySQL`, count(action) === expected);
   }
