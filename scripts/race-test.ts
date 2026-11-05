@@ -10,7 +10,10 @@
  *   4. a request cancel (the P2.2 pattern) races an allocation to one of its items
  *   5. allocations to two different items of one request at once
  *   6. 20 repeats of 1 with no blocker
- * Nothing may deadlock (error 1213), and stock and ledger must agree afterwards.
+ *   7. two all-or-nothing splits (P1.8's POST /api/allocations) over the same
+ *      two batches, in stock_id order: both fit; only one fits; 20 unblocked repeats
+ * Nothing may deadlock (error 1213), and stock, ledger and quantity_allocated
+ * must agree afterwards.
  *
  * It creates zz_race rows and removes them afterwards, and first removes any
  * left by an interrupted run. Prints PASS/FAIL per check; exits 1 on a FAIL.
@@ -64,6 +67,37 @@ const refusedWith = (o: Outcome, message: string) => !o.ok && o.errno === 1644 &
 
 function allocate(conn: Connection, item: number, stock: number, qty: number, user: number) {
   return attempt(() => conn.query("CALL sp_allocate(?, ?, ?, ?, @aid)", [item, stock, qty, user]));
+}
+
+/**
+ * POST /api/allocations' split: one item from several batches in one
+ * transaction, batches in ascending stock_id order, all or nothing.
+ */
+function splitAllocate(conn: Connection, item: number, parts: [stock: number, qty: number][], user: number) {
+  const ordered = [...parts].sort((x, y) => x[0] - y[0]);
+  return attempt(async () => {
+    await conn.beginTransaction();
+    try {
+      for (const [stock, qty] of ordered) {
+        await conn.query("CALL sp_allocate(?, ?, ?, ?, @aid)", [item, stock, qty, user]);
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    }
+  });
+}
+
+/** Items whose quantity_allocated isn't the sum of their non-cancelled allocations. */
+async function allocatedMismatches(conn: Connection, items: number[]): Promise<number> {
+  return Number(
+    await value<number>(
+      conn,
+      "SELECT COUNT(*) FROM request_item WHERE request_item_id IN (?) AND quantity_allocated <> fn_item_allocated(request_item_id)",
+      [items],
+    ),
+  );
 }
 
 /** P2.2's request cancel: lock every item in id order, then cancel them all. */
@@ -411,6 +445,102 @@ async function repeatedLastUnits(blocker: Connection, a: Connection, b: Connecti
   check(`6. ${runs} unblocked races for the last 50 units`, bad.length === 0, bad.join("; "));
 }
 
+/**
+ * 7. Two splits (items in different requests) over the same two batches. Both
+ * go in stock_id order, so they queue on the first shared batch instead of
+ * each holding one and waiting for the other. The blocker holds the second
+ * batch, so A takes B1 and waits on B2 while B waits on B1: the interleaving a
+ * reversed order would deadlock on. B's parts are listed in reverse on purpose;
+ * the split sorts them, as the route does.
+ */
+async function splitsShareBatches(blocker: Connection, a: Connection, b: Connection, f: Fixture): Promise<void> {
+  // 7a: enough stock for both.
+  {
+    const s1 = await newBatch(blocker, f, 50);
+    const s2 = await newBatch(blocker, f, 50);
+    const itemA = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const itemB = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const [x, y] = await race(
+      blocker,
+      "SELECT stock_id FROM stock WHERE stock_id = ? FOR UPDATE",
+      [s2],
+      () => splitAllocate(a, itemA, [[s1, 20], [s2, 20]], f.userId),
+      () => splitAllocate(b, itemB, [[s2, 20], [s1, 20]], f.userId),
+    );
+    const outcomes = `${describeOutcome(x)} | ${describeOutcome(y)}`;
+    check("7a. two splits sharing two batches: no deadlock", ![x, y].some((o) => !o.ok && o.errno === DEADLOCK), outcomes);
+    check("7a. both splits succeed", x.ok && y.ok, outcomes);
+    const state = await value<string>(
+      blocker,
+      `SELECT CONCAT_WS('/', (SELECT quantity_available FROM stock WHERE stock_id = ?),
+                             (SELECT quantity_available FROM stock WHERE stock_id = ?),
+                             (SELECT GROUP_CONCAT(status ORDER BY request_item_id) FROM request_item WHERE request_item_id IN (?, ?)))`,
+      [s1, s2, itemA, itemB],
+    );
+    check("7a. batches at 10/10, both items FULFILLED", state === "10.00/10.00/FULFILLED,FULFILLED", state);
+    check("7a. quantity_allocated matches the allocations", (await allocatedMismatches(blocker, [itemA, itemB])) === 0);
+    check("7a. ledger agrees with stock", (await ledgerMismatches(blocker, [s1, s2])) === 0);
+  }
+
+  // 7b: room for one split only. The loser's first part fits, its second doesn't: all of it rolls back.
+  {
+    const s1 = await newBatch(blocker, f, 30);
+    const s2 = await newBatch(blocker, f, 30);
+    const itemA = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const itemB = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const [x, y] = await race(
+      blocker,
+      "SELECT stock_id FROM stock WHERE stock_id = ? FOR UPDATE",
+      [s2],
+      () => splitAllocate(a, itemA, [[s1, 20], [s2, 20]], f.userId),
+      () => splitAllocate(b, itemB, [[s1, 5], [s2, 15]], f.userId),
+    );
+    const outcomes = `${describeOutcome(x)} | ${describeOutcome(y)}`;
+    check("7b. no deadlock", ![x, y].some((o) => !o.ok && o.errno === DEADLOCK), outcomes);
+    check(
+      "7b. one split succeeds; the other is refused with 'Insufficient stock in this batch'",
+      [x, y].filter((o) => o.ok).length === 1 && [x, y].some((o) => refusedWith(o, "Insufficient stock in this batch")),
+      outcomes,
+    );
+    const loser = x.ok ? itemB : itemA;
+    const left = await value<string>(
+      blocker,
+      `SELECT CONCAT_WS('/', (SELECT COUNT(*) FROM allocation WHERE request_item_id = ?),
+                             (SELECT COUNT(*) FROM stock_ledger WHERE stock_id IN (?, ?) AND reason = 'ALLOCATION'),
+                             (SELECT status FROM request_item WHERE request_item_id = ?))`,
+      [loser, s1, s2, loser],
+    );
+    check("7b. the refused split left nothing (allocations/ledger rows/status)", left === "0/2/PENDING", left);
+    check("7b. quantity_allocated matches the allocations", (await allocatedMismatches(blocker, [itemA, itemB])) === 0);
+    check("7b. ledger agrees with stock", (await ledgerMismatches(blocker, [s1, s2])) === 0);
+  }
+
+  // 7c: 7a again, 20 times, with no blocker.
+  const runs = 20;
+  const bad: string[] = [];
+  for (let i = 1; i <= runs; i++) {
+    const s1 = await newBatch(blocker, f, 50);
+    const s2 = await newBatch(blocker, f, 50);
+    const itemA = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const itemB = await newItem(blocker, await newRequest(blocker, f), f.resourceId, 40);
+    const [x, y] = await Promise.all([
+      splitAllocate(a, itemA, [[s1, 20], [s2, 20]], f.userId),
+      splitAllocate(b, itemB, [[s2, 20], [s1, 20]], f.userId),
+    ]);
+    const stock = await value<string>(
+      blocker,
+      "SELECT GROUP_CONCAT(quantity_available ORDER BY stock_id) FROM stock WHERE stock_id IN (?, ?)",
+      [s1, s2],
+    );
+    const reconciled =
+      (await allocatedMismatches(blocker, [itemA, itemB])) === 0 && (await ledgerMismatches(blocker, [s1, s2])) === 0;
+    if (!x.ok || !y.ok || stock !== "10.00,10.00" || !reconciled) {
+      bad.push(`run ${i}: ${describeOutcome(x)} | ${describeOutcome(y)}, stock ${stock}, reconciled ${reconciled}`);
+    }
+  }
+  check(`7c. ${runs} unblocked split races: no deadlock, all reconcile`, bad.length === 0, bad.join("; "));
+}
+
 async function main(): Promise<void> {
   const env = loadEnv(MYSQL_APP_KEYS);
   const connect = async () => {
@@ -440,6 +570,7 @@ async function main(): Promise<void> {
     await requestCancelVersusAllocate(blocker, a, b, f, false);
     await twoItemsOneRequest(blocker, a, b, f);
     await repeatedLastUnits(blocker, a, b, f);
+    await splitsShareBatches(blocker, a, b, f);
   } finally {
     await cleanUp(blocker, createdRoleId);
     await Promise.all([blocker.end(), a.end(), b.end()]);
