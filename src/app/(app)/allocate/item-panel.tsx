@@ -86,8 +86,10 @@ function PanelBody({
 
   const { mutate: mutateDetail } = detail;
   const { mutate: mutateSuggestions } = suggestions;
+  // The item first: if the queue refreshed first, a still-open item could briefly look as if it had left it.
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshQueue(), mutateDetail(), mutateSuggestions()]);
+    await mutateDetail();
+    await Promise.all([refreshQueue(), mutateSuggestions()]);
   }, [refreshQueue, mutateDetail, mutateSuggestions]);
 
   return (
