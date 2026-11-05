@@ -54,6 +54,14 @@ export async function parseJson<S extends z.ZodType>(req: Request, schema: S): P
   return schema.parse(body);
 }
 
+/**
+ * The query string, checked by schema (values arrive as strings; a repeated
+ * key keeps its last value). Throws a ZodError, which handle() turns into 400.
+ */
+export function parseQuery<S extends z.ZodType>(req: NextRequest, schema: S): z.output<S> {
+  return schema.parse(Object.fromEntries(req.nextUrl.searchParams));
+}
+
 type Handler<Ctx> = (req: NextRequest, ctx: Ctx) => Promise<Response>;
 
 /**

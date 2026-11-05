@@ -54,6 +54,15 @@ export async function queryOne<T = RowDataPacket>(sql: string, params?: unknown[
   return rows[0] ?? null;
 }
 
+/**
+ * The first result set of a CALL to a procedure that SELECTs (sp_suggest_batches).
+ * query() would return every result set plus the CALL's own status.
+ */
+export async function callRows<T = RowDataPacket>(sql: string, params?: unknown[]): Promise<T[]> {
+  const [sets] = await getPool().query<RowDataPacket[][]>(sql, params);
+  return (sets[0] ?? []) as T[];
+}
+
 /** An INSERT / UPDATE / DELETE: affectedRows, insertId, … */
 export async function execute(sql: string, params?: unknown[]): Promise<ResultSetHeader> {
   const [result] = await getPool().query<ResultSetHeader>(sql, params);
