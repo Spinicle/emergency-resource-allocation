@@ -47,12 +47,15 @@ const failure = (err: unknown) => (err instanceof ApiError ? err.message : "Some
 export function ItemPanel({
   itemId,
   queue,
+  queueFailed,
   refreshQueue,
   onClose,
 }: {
   itemId: number | null;
   /** The queue's rows; undefined until it has loaded. */
   queue: QueueRow[] | undefined;
+  /** The queue failed before it ever loaded (the page shows that error). */
+  queueFailed: boolean;
   refreshQueue: () => Promise<unknown>;
   onClose: () => void;
 }) {
@@ -73,6 +76,7 @@ export function ItemPanel({
             // Looked up by shownId, not itemId, so closing doesn't flash "left the queue".
             queueRow={queue?.find((r) => r.request_item_id === shownId)}
             queueLoaded={queue !== undefined}
+            queueFailed={queueFailed}
             refreshQueue={refreshQueue}
           />
         )}
@@ -85,6 +89,7 @@ function PanelBody({
   itemId,
   queueRow,
   queueLoaded,
+  queueFailed,
   refreshQueue,
 }: {
   itemId: number;
@@ -92,6 +97,8 @@ function PanelBody({
   queueRow: QueueRow | undefined;
   /** False until the queue has loaded once, so "left the queue" isn't shown while it's still coming. */
   queueLoaded: boolean;
+  /** The queue failed before it ever loaded: no score to wait for. */
+  queueFailed: boolean;
   refreshQueue: () => Promise<unknown>;
 }) {
   const detail = useApi<ItemAllocations>(`/api/allocations?item=${itemId}`);
@@ -142,7 +149,7 @@ function PanelBody({
               <ScoreBreakdown row={queueRow} />
             ) : leftQueue ? (
               <LeftQueueNotice item={item} />
-            ) : (
+            ) : queueFailed ? null : (
               <Skeleton className="h-36 w-full" />
             )}
 

@@ -150,7 +150,13 @@ export function AllocateView() {
         />
       )}
 
-      <ItemPanel itemId={itemId} queue={queue.data} refreshQueue={queue.mutate} onClose={closeItem} />
+      <ItemPanel
+        itemId={itemId}
+        queue={queue.data}
+        queueFailed={queue.error !== undefined && queue.data === undefined}
+        refreshQueue={queue.mutate}
+        onClose={closeItem}
+      />
     </div>
   );
 }
