@@ -27,51 +27,55 @@ ALTER TABLE `user`
 
 -- ---------------------------------------------------------------------------
 -- Allowed values (HANDOFF 4.3)
+--
+-- The database collation (utf8mb4_0900_ai_ci) ignores case and accents, so a
+-- plain IN would let 'flood' through. utf8mb4_0900_bin compares exactly and,
+-- unlike utf8mb4_bin, doesn't pad: 'ACTIVE ' is refused too. (MySQL 8.0.17+)
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE role
     ADD CONSTRAINT chk_role_role_name
-        CHECK (role_name IN ('ADMIN', 'COORDINATOR', 'FIELD_OFFICER', 'CENTER_MANAGER'));
+        CHECK (role_name COLLATE utf8mb4_0900_bin IN ('ADMIN', 'COORDINATOR', 'FIELD_OFFICER', 'CENTER_MANAGER'));
 
 ALTER TABLE emergency
     ADD CONSTRAINT chk_emergency_type
-        CHECK (type IN ('FLOOD', 'EARTHQUAKE', 'CYCLONE', 'FIRE',
+        CHECK (type COLLATE utf8mb4_0900_bin IN ('FLOOD', 'EARTHQUAKE', 'CYCLONE', 'FIRE',
                         'LANDSLIDE', 'EPIDEMIC', 'HEATWAVE', 'OTHER')),
     ADD CONSTRAINT chk_emergency_status
-        CHECK (status IN ('ACTIVE', 'CONTAINED', 'CLOSED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('ACTIVE', 'CONTAINED', 'CLOSED'));
 
 ALTER TABLE emergency_impact
     ADD CONSTRAINT chk_emergency_impact_status
-        CHECK (status IN ('ACTIVE', 'STABILISED', 'RESOLVED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('ACTIVE', 'STABILISED', 'RESOLVED'));
 
 ALTER TABLE impact_observation
     ADD CONSTRAINT chk_impact_observation_severity
-        CHECK (severity IN ('LOW', 'MODERATE', 'HIGH', 'CRITICAL'));
+        CHECK (severity COLLATE utf8mb4_0900_bin IN ('LOW', 'MODERATE', 'HIGH', 'CRITICAL'));
 
 ALTER TABLE resource
     ADD CONSTRAINT chk_resource_category
-        CHECK (category IN ('FOOD', 'WATER', 'MEDICAL', 'SHELTER',
+        CHECK (category COLLATE utf8mb4_0900_bin IN ('FOOD', 'WATER', 'MEDICAL', 'SHELTER',
                             'HYGIENE', 'RESCUE', 'POWER', 'OTHER'));
 
 ALTER TABLE resource_center
     ADD CONSTRAINT chk_resource_center_center_type
-        CHECK (center_type IN ('WAREHOUSE', 'HOSPITAL', 'RELIEF_CAMP', 'DEPOT')),
+        CHECK (center_type COLLATE utf8mb4_0900_bin IN ('WAREHOUSE', 'HOSPITAL', 'RELIEF_CAMP', 'DEPOT')),
     ADD CONSTRAINT chk_resource_center_status
-        CHECK (status IN ('OPERATIONAL', 'LIMITED', 'CLOSED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('OPERATIONAL', 'LIMITED', 'CLOSED'));
 
 -- New requests start OPEN; triggers roll the status up from the items.
 ALTER TABLE resource_request
     ALTER COLUMN status SET DEFAULT 'OPEN',
     ADD CONSTRAINT chk_resource_request_status
-        CHECK (status IN ('OPEN', 'PARTIALLY_FULFILLED', 'FULFILLED', 'CANCELLED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('OPEN', 'PARTIALLY_FULFILLED', 'FULFILLED', 'CANCELLED'));
 
 -- New items start PENDING; triggers set PARTIAL / FULFILLED.
 ALTER TABLE request_item
     ALTER COLUMN status SET DEFAULT 'PENDING',
     ADD CONSTRAINT chk_request_item_urgency
-        CHECK (urgency IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+        CHECK (urgency COLLATE utf8mb4_0900_bin IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
     ADD CONSTRAINT chk_request_item_status
-        CHECK (status IN ('PENDING', 'PARTIAL', 'FULFILLED', 'CANCELLED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('PENDING', 'PARTIAL', 'FULFILLED', 'CANCELLED'));
 
 -- quantity_allocated: sum of the item's allocations that aren't CANCELLED. Kept
 -- by the allocation triggers only (06_triggers.sql); hand edits are refused.
@@ -87,7 +91,7 @@ ALTER TABLE request_item
 ALTER TABLE allocation
     ALTER COLUMN status SET DEFAULT 'RESERVED',
     ADD CONSTRAINT chk_allocation_status
-        CHECK (status IN ('RESERVED', 'DISPATCHED', 'DELIVERED', 'CANCELLED'));
+        CHECK (status COLLATE utf8mb4_0900_bin IN ('RESERVED', 'DISPATCHED', 'DELIVERED', 'CANCELLED'));
 
 -- ---------------------------------------------------------------------------
 -- stock_ledger: one row per change to stock.quantity_available, written by
@@ -126,7 +130,7 @@ CREATE TABLE stock_ledger (
         CHECK (change_qty <> 0),
 
     CONSTRAINT chk_stock_ledger_reason
-        CHECK (reason IN ('RECEIPT', 'ALLOCATION', 'ALLOCATION_CANCELLED',
+        CHECK (reason COLLATE utf8mb4_0900_bin IN ('RECEIPT', 'ALLOCATION', 'ALLOCATION_CANCELLED',
                           'ADJUSTMENT', 'WRITE_OFF')),
 
     -- Per-batch history in time order (ledger view, reconciliation query 11).

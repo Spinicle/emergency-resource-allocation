@@ -115,6 +115,18 @@ SET @c = 'T02 item with urgency URGENT', @e = '3819: Check constraint ''chk_requ
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
+-- Allowed values compare exactly (utf8mb4_0900_bin): no case folding, no padding.
+CALL sp_test_expect(CONCAT('INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (',
+                           @req3, ', ', @r_tent, ', 1, ''critical'')'), @errno, @msg);
+SET @c = 'item with urgency critical (lowercase)', @e = '3819: Check constraint ''chk_request_item_urgency'' is violated.',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+CALL sp_test_expect(CONCAT('INSERT INTO request_item (request_id, resource_id, quantity_requested, urgency) VALUES (',
+                           @req3, ', ', @r_tent, ', 1, ''HIGH '')'), @errno, @msg);
+SET @c = 'item with urgency ''HIGH '' (trailing space)', @e = '3819: Check constraint ''chk_request_item_urgency'' is violated.',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
 CALL sp_test_expect(CONCAT('INSERT INTO `user` (role_id, name, email, password_hash) VALUES (',
                            @role, ', ''zz_t13 copy'', ''zz_t13_alloc@eras.test'', ''x'')'), @errno, @msg);
 SET @c = 'T04 two users with the same email (errno)', @e = 1062, @a = @errno;

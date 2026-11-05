@@ -191,13 +191,15 @@ COMMENT 'Adjust or write off a batch (ledger ADJUSTMENT / WRITE_OFF)'
 BEGIN
     DECLARE v_rows INT;
 
-    IF p_reason IS NULL OR p_reason NOT IN ('ADJUSTMENT', 'WRITE_OFF') THEN
+    -- Exact comparison, like chk_stock_ledger_reason: 'adjustment' gets this
+    -- message rather than the CHECK's 3819 from inside the trigger.
+    IF p_reason IS NULL OR p_reason COLLATE utf8mb4_0900_bin NOT IN ('ADJUSTMENT', 'WRITE_OFF') THEN
         CALL sp_raise('Reason must be ADJUSTMENT or WRITE_OFF');
     END IF;
     IF p_delta IS NULL OR p_delta = 0 THEN
         CALL sp_raise('Adjustment must change the quantity');
     END IF;
-    IF p_reason = 'WRITE_OFF' AND p_delta > 0 THEN
+    IF p_reason COLLATE utf8mb4_0900_bin = 'WRITE_OFF' AND p_delta > 0 THEN
         CALL sp_raise('A write-off must reduce the quantity');
     END IF;
 

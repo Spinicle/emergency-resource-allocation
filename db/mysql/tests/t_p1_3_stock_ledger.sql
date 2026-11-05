@@ -148,6 +148,10 @@ CALL sp_test_expect(CONCAT('CALL sp_adjust_stock(', @b_far, ', 5, ''RECEIPT'', '
 SET @c = 'adjust with reason RECEIPT', @e = '1644: Reason must be ADJUSTMENT or WRITE_OFF',
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+CALL sp_test_expect(CONCAT('CALL sp_adjust_stock(', @b_far, ', 5, ''adjustment'', ', @u2, ')'), @errno, @msg);
+SET @c = 'adjust with reason adjustment (lowercase)', @e = '1644: Reason must be ADJUSTMENT or WRITE_OFF',
+    @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 CALL sp_test_expect(CONCAT('CALL sp_adjust_stock(', @b_far, ', 0, ''ADJUSTMENT'', ', @u2, ')'), @errno, @msg);
 SET @c = 'adjust by 0', @e = '1644: Adjustment must change the quantity',
     @a = CONCAT(@errno, ': ', COALESCE(@msg, ''));
