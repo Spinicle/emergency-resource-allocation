@@ -72,9 +72,6 @@ export async function logActivities(actor: Session, entries: ActivityInput[]): P
   } catch (err) {
     const { name, message } = err instanceof Error ? err : { name: "Error", message: String(err) };
     const actions = [...new Set(entries.map((e) => e.action))].join(", ");
-    console.error(`logActivity(${actions}) failed for ${entries.length} entr${entries.length === 1 ? "y" : "ies"}:`, {
-      name,
-      message,
-    });
+    console.error(`logActivities(${actions}) failed (${entries.length} entries):`, { name, message });
   }
 }
