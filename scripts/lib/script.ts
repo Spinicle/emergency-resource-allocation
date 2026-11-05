@@ -12,11 +12,14 @@ export const MYSQL_APP_KEYS = [
 ] as const;
 export const MYSQL_ADMIN_KEYS = ["MYSQL_ADMIN_USER", "MYSQL_ADMIN_PASSWORD"] as const;
 export const MONGO_KEYS = ["MONGODB_URI", "MONGODB_DB"] as const;
+/** api:test signs its own test tokens with the app's key. */
+export const AUTH_KEYS = ["JWT_SECRET"] as const;
 
 type EnvKey =
   | (typeof MYSQL_APP_KEYS)[number]
   | (typeof MYSQL_ADMIN_KEYS)[number]
-  | (typeof MONGO_KEYS)[number];
+  | (typeof MONGO_KEYS)[number]
+  | (typeof AUTH_KEYS)[number];
 
 // Scripts run DROP DATABASE / DROP USER as admin, so these names are refused.
 const SYSTEM_MYSQL_SCHEMAS = ["mysql", "sys", "information_schema", "performance_schema"];

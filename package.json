@@ -12,7 +12,8 @@
     "db:race": "tsx scripts/race-test.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "db:enums": "tsx scripts/check-enums.ts",
-    "mongo:test": "tsx scripts/test-mongo.ts"
+    "mongo:test": "tsx scripts/test-mongo.ts",
+    "api:test": "tsx scripts/test-api.ts"
   },
   "dependencies": {
     "@tanstack/react-table": "^9.3.1",
