@@ -20,6 +20,7 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -84,7 +85,7 @@ export function DataTable<TData extends RowData>({
     features: dataTableFeatures,
     columns,
     data,
-    ...(getRowId && { getRowId: (row: TData) => getRowId(row) }),
+    ...(getRowId && { getRowId }),
     initialState: { pagination: { pageIndex: 0, pageSize } },
   });
 
@@ -132,7 +133,7 @@ export function DataTable<TData extends RowData>({
                     tabIndex: 0,
                     className: "cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none",
                     onClick: () => onRowClick(row.original),
-                    onKeyDown: (e: React.KeyboardEvent) => {
+                    onKeyDown: (e: KeyboardEvent) => {
                       if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
                       e.preventDefault();
                       onRowClick(row.original);

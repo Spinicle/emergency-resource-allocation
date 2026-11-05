@@ -5,7 +5,7 @@ import { idParam, idSchema } from "./common";
 // stock, remaining quantity, expiry and center/emergency status are the
 // triggers' job, and their messages reach the user as-is.
 //
-// Imports only zod, so the /allocate page can use it too.
+// Imports only zod and ./common, so the /allocate page can use it too.
 
 /** The most batches one allocation request may split an item across. */
 export const MAX_SPLIT_BATCHES = 10;
