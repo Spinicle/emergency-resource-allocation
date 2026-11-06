@@ -14,7 +14,8 @@
  * Exits 1 if any check fails.
  */
 import { type Db, MongoClient } from "mongodb";
-import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
+import type { Connection, RowDataPacket } from "mysql2/promise";
+import { appConnection } from "./lib/app-connection";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
 const BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
@@ -240,15 +241,7 @@ async function main(): Promise<void> {
   } catch {
     throw new ScriptError(`nothing is answering at ${BASE}. Start the app first: npm run dev`);
   }
-  const my = await mysql.createConnection({
-    host: env.MYSQL_HOST,
-    port: Number(env.MYSQL_PORT),
-    user: env.MYSQL_USER,
-    password: env.MYSQL_PASSWORD,
-    database: env.MYSQL_DATABASE,
-    dateStrings: true,
-    decimalNumbers: true,
-  });
+  const my = await appConnection(env);
   const mongo = new MongoClient(env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
   try {
     const db = mongo.db(env.MONGODB_DB);
