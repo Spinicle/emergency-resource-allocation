@@ -11,6 +11,9 @@ import { createImpactSchema, emergencyIdParams } from "@/lib/validators/emergenc
 
 type LocationRow = RowDataPacket & { location_id: number; latitude: number; longitude: number };
 
+const FIND_LOCATION = "SELECT location_id, latitude, longitude FROM location WHERE grid_id = ?";
+const FIND_LOCATION_LOCKED = "SELECT location_id, latitude, longitude FROM location WHERE grid_id = ? FOR SHARE";
+
 const isDuplicate = (err: unknown) => (err as { errno?: unknown } | null)?.errno === 1062;
 
 /*
@@ -37,15 +40,12 @@ export const POST = handle<RouteContext<"/api/emergencies/[id]/impacts">>(async 
       throw new HttpError(409, "This emergency is closed, so it takes no new impacts", { code: "RULE" });
     }
 
-    const findLocation = async (lock: boolean) => {
-      const [rows] = await conn.query<LocationRow[]>(
-        `SELECT location_id, latitude, longitude FROM location WHERE grid_id = ?${lock ? " FOR SHARE" : ""}`,
-        [grid_id],
-      );
+    const findLocation = async (sql: string) => {
+      const [rows] = await conn.query<LocationRow[]>(sql, [grid_id]);
       return rows[0];
     };
 
-    let location = await findLocation(false);
+    let location = await findLocation(FIND_LOCATION);
     let locationCreated = false;
     if (!location) {
       try {
@@ -60,7 +60,7 @@ export const POST = handle<RouteContext<"/api/emergencies/[id]/impacts">>(async 
         // doesn't end the transaction; a locking read sees their committed row
         // (a plain one would read this transaction's older snapshot).
         if (!isDuplicate(err)) throw err;
-        location = await findLocation(true);
+        location = await findLocation(FIND_LOCATION_LOCKED);
         if (!location) throw err;
       }
     }
