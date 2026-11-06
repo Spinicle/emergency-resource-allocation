@@ -39,5 +39,8 @@ export const optionalText = z
   .nullable()
   .optional();
 
+/** The most a search box may hold; the inputs use it as their maxLength. */
+export const MAX_SEARCH_LENGTH = 200;
+
 /** The search box. Length-capped; lib/search.ts handles what's inside it. */
-export const searchText = z.string().trim().max(200, "Search text is too long").optional();
+export const searchText = z.string().trim().max(MAX_SEARCH_LENGTH, "Search text is too long").optional();

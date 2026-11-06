@@ -12,6 +12,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useApi } from "@/lib/client";
 import type { EmergencyRow } from "@/lib/emergency-types";
 import { EMERGENCY_STATUSES, EMERGENCY_TYPES } from "@/lib/enums";
+import { MAX_SEARCH_LENGTH } from "@/lib/validators/fields";
 import { PhaseBadge } from "./badges";
 import { EmergencyDialog } from "./emergency-dialog";
 import { humanize, withQuery } from "./format";
@@ -88,6 +89,12 @@ export function EmergencyList({ canEdit }: { canEdit: boolean }) {
     }),
   );
 
+  // A new filter is a new SWR key, so list.data is undefined until it answers.
+  // Showing the last rows meanwhile keeps the table mounted, with its sort.
+  const [lastRows, setLastRows] = useState<EmergencyRow[]>();
+  if (list.data && list.data !== lastRows) setLastRows(list.data);
+  const rows = list.data ?? lastRows;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -96,6 +103,7 @@ export function EmergencyList({ canEdit }: { canEdit: boolean }) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search name and description…"
           aria-label="Search emergencies"
+          maxLength={MAX_SEARCH_LENGTH}
           className="w-full sm:w-72"
         />
         <FilterSelect label="status" value={status} onChange={setStatus} options={EMERGENCY_STATUSES} />
@@ -109,7 +117,7 @@ export function EmergencyList({ canEdit }: { canEdit: boolean }) {
 
       {/* A failed refetch keeps the last good list on screen, with the error above it. */}
       {list.error && <InlineError error={list.error} onRetry={() => void list.mutate()} />}
-      {!list.data ? (
+      {!rows ? (
         !list.error && (
           <div className="flex flex-col gap-2" aria-busy>
             {Array.from({ length: 4 }, (_, i) => (
@@ -120,7 +128,7 @@ export function EmergencyList({ canEdit }: { canEdit: boolean }) {
       ) : (
         <DataTable
           columns={columns}
-          data={list.data}
+          data={rows}
           emptyMessage={q ? "No emergencies match this search." : "No emergencies match these filters."}
           getRowId={(r) => String(r.emergency_id)}
           onRowClick={(r) => router.push(`/emergencies/${r.emergency_id}`)}
