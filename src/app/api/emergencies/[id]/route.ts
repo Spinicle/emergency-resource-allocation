@@ -8,7 +8,13 @@ import {
   scopeParams,
   scopeSql,
 } from "@/lib/emergencies";
-import type { EmergencyDetail, EmergencyHeader, ImpactRow, ObservationRow } from "@/lib/emergency-types";
+import {
+  type EmergencyDetail,
+  type EmergencyHeader,
+  type ImpactRow,
+  OBSERVATION_LIMIT,
+  type ObservationRow,
+} from "@/lib/emergency-types";
 import { handle, HttpError, ok, parseJson } from "@/lib/http";
 import { getDb } from "@/lib/mongo";
 import { query, queryOne, withTransaction } from "@/lib/mysql";
@@ -21,9 +27,6 @@ import { emergencyIdParams, updateEmergencySchema } from "@/lib/validators/emerg
 
 type Ctx = RouteContext<"/api/emergencies/[id]">;
 
-/** The timeline's cap: enough to read, small after P2.3 seeds ~150 more reports. */
-const OBSERVATION_LIMIT = 200;
-
 /** Columns PATCH may set from the body. A fixed list: column names never come from input. */
 const EDITABLE = ["name", "type", "start_time", "description"] as const;
 
@@ -35,7 +38,7 @@ export const GET = handle<Ctx>(async (_req, ctx) => {
   if (!emergency) throw emergencyNotFound(id);
 
   const scope = scopeParams(session);
-  const [impacts, observations, counts, reports] = await Promise.all([
+  const [impacts, observations, observationTotal, counts, reports] = await Promise.all([
     // ROW_NUMBER numbers each impact's observations newest first, so rn = 1 is
     // the latest (uq_impact_observation_time makes it unique). The LEFT JOIN
     // keeps impacts with no observation yet: their latest_* are NULL.
@@ -72,6 +75,13 @@ export const GET = handle<Ctx>(async (_req, ctx) => {
         LIMIT ?`,
       [id, OBSERVATION_LIMIT],
     ),
+    queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n
+         FROM impact_observation o
+         JOIN emergency_impact ei ON ei.impact_id = o.impact_id
+        WHERE ei.emergency_id = ?`,
+      [id],
+    ),
     // open_items: what leaves the allocation queue if the emergency closes.
     queryOne<{ requests: number; open_items: number }>(
       `SELECT COUNT(DISTINCT rr.request_id) AS requests,
@@ -90,7 +100,12 @@ export const GET = handle<Ctx>(async (_req, ctx) => {
     emergency,
     impacts,
     observations,
-    counts: { requests: Number(counts?.requests ?? 0), open_items: Number(counts?.open_items ?? 0), reports },
+    counts: {
+      observations: Number(observationTotal?.n ?? 0),
+      requests: Number(counts?.requests ?? 0),
+      open_items: Number(counts?.open_items ?? 0),
+      reports,
+    },
   } satisfies EmergencyDetail);
 });
 

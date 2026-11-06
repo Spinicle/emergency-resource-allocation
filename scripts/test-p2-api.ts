@@ -204,7 +204,7 @@ async function testEmergencies(my: Connection): Promise<void> {
   const latest = (await coord("GET", `/api/emergencies/${id}`)).data;
   check("detail shows the latest severity and the timeline",
     latest?.impacts?.some((i: { latest_severity: string }) => i.latest_severity === "MODERATE") &&
-      latest?.observations?.length === 1 && latest?.counts?.reports === 1, latest);
+      latest?.observations?.length === 1 && latest?.counts?.observations === 1 && latest?.counts?.reports === 1, latest);
 
   // start_time can't move past the first observation. A refused PATCH writes
   // nothing, so the seeded flood is safe to try it on: its first observation is

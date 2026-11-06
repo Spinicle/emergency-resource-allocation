@@ -272,7 +272,7 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
             </div>
             <div>
               <dt className="inline">Observations: </dt>
-              <dd className="inline font-medium text-foreground">{observations.length}</dd>
+              <dd className="inline font-medium text-foreground">{counts.observations}</dd>
             </div>
             <div>
               <dt className="inline">{canEdit ? "Requests: " : "Your requests: "}</dt>
@@ -316,8 +316,10 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
             getRowId={(r) => String(r.observation_id)}
             emptyMessage="No observations yet. Field officers file them as field reports."
           />
-          {observations.length === 200 && (
-            <p className="mt-2 text-muted-foreground">Showing the latest 200 observations.</p>
+          {counts.observations > observations.length && (
+            <p className="mt-2 text-muted-foreground">
+              Showing the latest {observations.length} of {counts.observations} observations.
+            </p>
           )}
         </TabsContent>
 

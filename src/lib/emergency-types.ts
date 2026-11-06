@@ -38,7 +38,10 @@ export type ImpactRow = {
   request_count: number;
 };
 
-/** One entry of the observations timeline (newest first, at most 200). */
+/** The timeline's cap: enough to read, small after P2.3 seeds ~150 more reports. */
+export const OBSERVATION_LIMIT = 200;
+
+/** One entry of the observations timeline (newest first, at most OBSERVATION_LIMIT). */
 export type ObservationRow = {
   observation_id: number;
   impact_id: number;
@@ -54,8 +57,11 @@ export type EmergencyDetail = {
   emergency: EmergencyHeader;
   impacts: ImpactRow[];
   observations: ObservationRow[];
-  /** open_items: PENDING / PARTIAL items in non-cancelled requests (they leave the queue on close). */
-  counts: { requests: number; open_items: number; reports: number };
+  /**
+   * observations: the real total, which `observations` above may be capped below.
+   * open_items: PENDING / PARTIAL items in non-cancelled requests (they leave the queue on close).
+   */
+  counts: { observations: number; requests: number; open_items: number; reports: number };
 };
 
 /** POST /api/emergencies -> 201 */
