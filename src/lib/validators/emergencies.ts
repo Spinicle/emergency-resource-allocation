@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { EMERGENCY_STATUSES, EMERGENCY_TYPES, IMPACT_STATUSES } from "../enums";
-import { idParam } from "./common";
-import { istDateTime, optionalText, queryParam, searchText } from "./fields";
+import { idParam, optionalQueryParam } from "./common";
+import { istDateTime, optionalText, searchText } from "./fields";
 
 // Requests to /api/emergencies/* and /api/impacts/* (docs/HANDOFF.md P2.1).
 // The database's CHECK constraints stay the final word; these give the user a
@@ -29,8 +29,8 @@ export const impactIdParams = z.object({ id: idParam });
 
 /** GET /api/emergencies?status=&type=&q= (blank values count as not sent) */
 export const emergencyListQuery = z.object({
-  status: queryParam(z.enum(EMERGENCY_STATUSES, "Choose a status")),
-  type: queryParam(z.enum(EMERGENCY_TYPES, "Choose a type")),
+  status: optionalQueryParam(z.enum(EMERGENCY_STATUSES, "Choose a status")),
+  type: optionalQueryParam(z.enum(EMERGENCY_TYPES, "Choose a type")),
   q: searchText,
 });
 

@@ -41,12 +41,3 @@ export const optionalText = z
 
 /** The search box. Length-capped; lib/search.ts handles what's inside it. */
 export const searchText = z.string().trim().max(200, "Search text is too long").optional();
-
-/**
- * An optional query-string value where blank means "not sent". parseQuery
- * (lib/http.ts) passes `?status=` through as "", which an enum would reject;
- * an untouched filter form sends exactly that.
- */
-export function queryParam<S extends z.ZodType>(schema: S) {
-  return z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
-}
