@@ -94,9 +94,14 @@ async function testEmergencies(my: Connection): Promise<void> {
   check("adds a first impact on a new grid -> 201, location created",
     impact1.status === 201 && impact1.data?.location_created === true, impact1);
   // An existing grid (a center's location) keeps its stored coordinates.
-  const impact2 = await coord("POST", `/api/emergencies/${id}/impacts`, { grid_id: "BLR-PEENYA", latitude: 1, longitude: 1 });
-  check("adds a second impact on an existing grid -> 201, stored coordinates",
-    impact2.status === 201 && impact2.data?.location_created === false && impact2.data?.latitude !== 1, impact2);
+  // Lookups ignore case, so this finds BLR-PEENYA; the stored spelling comes back.
+  const impact2 = await coord("POST", `/api/emergencies/${id}/impacts`, { grid_id: "blr-peenya", latitude: 1, longitude: 1 });
+  check("adds a second impact on an existing grid -> 201, stored coordinates and spelling",
+    impact2.status === 201 && impact2.data?.location_created === false && impact2.data?.latitude !== 1 &&
+      impact2.data?.grid_id === "BLR-PEENYA", impact2);
+  const repeatLower = await coord("POST", `/api/emergencies/${id}/impacts`, { grid_id: "blr-peenya", latitude: 1, longitude: 1 });
+  check("a repeat names the stored spelling in its 409",
+    repeatLower.status === 409 && /BLR-PEENYA/.test(repeatLower.error?.message ?? ""), repeatLower);
 
   const repeat = await coord("POST", `/api/emergencies/${id}/impacts`, { grid_id: grid1, latitude: 12.9, longitude: 77.6 });
   check("the same grid twice -> 409 DUPLICATE", repeat.status === 409 && repeat.error?.code === "DUPLICATE", repeat);

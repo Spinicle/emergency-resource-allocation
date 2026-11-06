@@ -9,10 +9,10 @@ import { createImpactSchema, emergencyIdParams } from "@/lib/validators/emergenc
 // POST /api/emergencies/[id]/impacts (docs/HANDOFF.md P2.1), ADMIN and COORDINATOR.
 //   { grid_id, latitude, longitude } -> 201 ImpactCreated
 
-type LocationRow = RowDataPacket & { location_id: number; latitude: number; longitude: number };
+type LocationRow = RowDataPacket & { location_id: number; grid_id: string; latitude: number; longitude: number };
 
-const FIND_LOCATION = "SELECT location_id, latitude, longitude FROM location WHERE grid_id = ?";
-const FIND_LOCATION_LOCKED = "SELECT location_id, latitude, longitude FROM location WHERE grid_id = ? FOR SHARE";
+const FIND_LOCATION = "SELECT location_id, grid_id, latitude, longitude FROM location WHERE grid_id = ?";
+const FIND_LOCATION_LOCKED = "SELECT location_id, grid_id, latitude, longitude FROM location WHERE grid_id = ? FOR SHARE";
 
 const isDuplicate = (err: unknown) => (err as { errno?: unknown } | null)?.errno === 1062;
 
@@ -23,7 +23,8 @@ const isDuplicate = (err: unknown) => (err as { errno?: unknown } | null)?.errno
  *
  * An existing grid_id keeps its stored coordinates (a grid cell has one
  * position, and centers share the table); the response returns them and
- * location_created: false.
+ * location_created: false. Lookups ignore case, so the stored spelling is the one
+ * reported and logged, not what was typed.
  */
 export const POST = handle<RouteContext<"/api/emergencies/[id]/impacts">>(async (req, ctx) => {
   const session = await requireRole("ADMIN", "COORDINATOR");
@@ -53,7 +54,7 @@ export const POST = handle<RouteContext<"/api/emergencies/[id]/impacts">>(async 
           "INSERT INTO location (grid_id, latitude, longitude) VALUES (?, ?, ?)",
           [grid_id, latitude, longitude],
         );
-        location = { location_id: inserted.insertId, latitude, longitude } as LocationRow;
+        location = { location_id: inserted.insertId, grid_id, latitude, longitude } as LocationRow;
         locationCreated = true;
       } catch (err) {
         // Someone else created this grid_id since the SELECT. A failed statement
@@ -74,21 +75,21 @@ export const POST = handle<RouteContext<"/api/emergencies/[id]/impacts">>(async 
         impact_id: impact.insertId,
         location_id: location.location_id,
         location_created: locationCreated,
-        grid_id,
+        grid_id: location.grid_id,
         latitude: Number(location.latitude),
         longitude: Number(location.longitude),
       };
     } catch (err) {
       // uq_emergency_location is the only unique key this INSERT can hit.
       if (isDuplicate(err)) {
-        throw new HttpError(409, `${grid_id} is already an impact of this emergency`, { code: "DUPLICATE" });
+        throw new HttpError(409, `${location.grid_id} is already an impact of this emergency`, { code: "DUPLICATE" });
       }
       throw err;
     }
   });
 
   await logEmergencyEvent(session, "IMPACT_ADDED", { type: "IMPACT", id: created.impact_id }, emergencyId, {
-    grid_id,
+    grid_id: created.grid_id,
     location_created: created.location_created,
   });
   return ok(created, 201);
