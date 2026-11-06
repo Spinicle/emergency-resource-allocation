@@ -395,6 +395,25 @@ SET @c = 'queue''s quantity_allocated = request_item.quantity_allocated (mismatc
              AND q.quantity_allocated <> ri.quantity_allocated);
 SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
 
+-- ---- T18: the ledger agrees with the stock, for every fixture batch ----
+SET @c = 'T18 running SUM(change_qty) <> balance_after (rows)', @e = 0,
+    @a = (SELECT COUNT(*)
+            FROM (SELECT l.balance_after,
+                         SUM(l.change_qty) OVER (PARTITION BY l.stock_id ORDER BY l.changed_at, l.ledger_id) AS running
+                    FROM stock_ledger l
+                    JOIN stock s ON s.stock_id = l.stock_id
+                   WHERE s.center_id IN (@c_near, @c_ltd, @c_far, @c_shut)) AS x
+           WHERE x.running <> x.balance_after);
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+SET @c = 'T18 last balance <> quantity_available (batches)', @e = 0,
+    @a = (SELECT COUNT(*)
+            FROM stock s
+           WHERE s.center_id IN (@c_near, @c_ltd, @c_far, @c_shut)
+             AND s.quantity_available <> COALESCE((SELECT l.balance_after FROM stock_ledger l
+                                                    WHERE l.stock_id = s.stock_id
+                                                    ORDER BY l.changed_at DESC, l.ledger_id DESC LIMIT 1), 0));
+SET @results = JSON_ARRAY_APPEND(@results, '$', JSON_ARRAY(@section, @c, CAST(@e AS CHAR), CAST(@a AS CHAR), @a <=> @e));
+
 ROLLBACK;
 
 EXECUTE snapshot_counts;
