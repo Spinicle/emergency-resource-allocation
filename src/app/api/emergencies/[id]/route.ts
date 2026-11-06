@@ -106,6 +106,9 @@ export const GET = handle<Ctx>(async (_req, ctx) => {
  *   still slip through (known gap; closing it would mean changing Part 1's route).
  * - Times are compared by MySQL's clock. chk_emergency_time needs end_time >=
  *   start_time, so a future start is refused, and so is closing before the start.
+ * - start_time can't move past the first observation: P2.3 keeps reports inside
+ *   [start_time, end_time]. A report filed meanwhile is dated NOW(), which is
+ *   never before an accepted start_time, so this needs no lock on observations.
  */
 export const PATCH = handle<Ctx>(async (req, ctx) => {
   const session = await requireRole("ADMIN", "COORDINATOR");
@@ -134,6 +137,19 @@ export const PATCH = handle<Ctx>(async (req, ctx) => {
 
     if (changed.includes("start_time") && current.new_start_future) {
       throw fieldError("start_time", "The start time can't be in the future");
+    }
+    if (changed.includes("start_time")) {
+      // No observations: MIN is NULL, so nothing to refuse.
+      const [first] = await conn.query<RowDataPacket[]>(
+        `SELECT ? > MIN(o.observed_at) AS after_first
+           FROM impact_observation o
+           JOIN emergency_impact ei ON ei.impact_id = o.impact_id
+          WHERE ei.emergency_id = ?`,
+        [body.start_time, id],
+      );
+      if (first[0].after_first) {
+        throw fieldError("start_time", "The start time can't be after the first observation");
+      }
     }
     if (changed.includes("type")) {
       const [observed] = await conn.query<RowDataPacket[]>(

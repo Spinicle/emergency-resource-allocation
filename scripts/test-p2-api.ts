@@ -198,6 +198,25 @@ async function testEmergencies(my: Connection): Promise<void> {
     latest?.impacts?.some((i: { latest_severity: string }) => i.latest_severity === "MODERATE") &&
       latest?.observations?.length === 1 && latest?.counts?.reports === 1, latest);
 
+  // start_time can't move past the first observation. A refused PATCH writes
+  // nothing, so the seeded flood is safe to try it on: its first observation is
+  // old enough that an hour later is still in the past.
+  const [firstRows] = await my.query<RowDataPacket[]>(
+    `SELECT DATE_FORMAT(MIN(o.observed_at) + INTERVAL 1 HOUR, '%Y-%m-%d %H:%i:%s') AS after_first
+       FROM impact_observation o
+       JOIN emergency_impact ei ON ei.impact_id = o.impact_id
+      WHERE ei.emergency_id = ?`,
+    [want.emergency_id],
+  );
+  const floodPath = `/api/emergencies/${want.emergency_id}`;
+  const floodStart = (await coord("GET", floodPath)).data?.emergency?.start_time;
+  const pastFirst = await coord("PATCH", floodPath, { start_time: firstRows[0].after_first });
+  check("start_time after the first observation -> 400 on start_time",
+    pastFirst.status === 400 && /first observation/.test(pastFirst.error?.fields?.start_time ?? ""), pastFirst);
+  check("...and the start_time is unchanged", (await coord("GET", floodPath)).data?.emergency?.start_time === floodStart);
+  const atFirst = await coord("PATCH", `/api/emergencies/${id}`, { start_time: latest?.observations?.[0]?.observed_at });
+  check("start_time equal to the first observation -> 200", atFirst.status === 200, atFirst);
+
   // Closing is final.
   const closed = await coord("PATCH", `/api/emergencies/${id}`, { status: "CLOSED" });
   check("close sets status and end_time", closed.data?.status === "CLOSED" && !!closed.data?.end_time, closed);
