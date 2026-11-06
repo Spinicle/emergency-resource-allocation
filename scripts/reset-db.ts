@@ -17,6 +17,7 @@ import { readdirSync } from "node:fs";
 import { MongoClient } from "mongodb";
 import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
 import { setupMongo } from "../db/mongo/setup";
+import { appConnection } from "./lib/app-connection";
 import { withMysqlCli } from "./lib/mysql-cli";
 import {
   loadEnv,
@@ -98,15 +99,7 @@ async function resetMongo(env: Env): Promise<Record<string, number>> {
     await db.dropDatabase();
     console.log(`  dropped database ${env.MONGODB_DB}`);
     // The modules read (and Part 2's seed writes) MySQL as the app user, with the app pool's settings.
-    const app = await mysql.createConnection({
-      host: env.MYSQL_HOST,
-      port: Number(env.MYSQL_PORT),
-      user: env.MYSQL_USER,
-      password: env.MYSQL_PASSWORD,
-      database: env.MYSQL_DATABASE,
-      dateStrings: true,
-      decimalNumbers: true,
-    });
+    const app = await appConnection(env);
     try {
       await setupMongo(db, app);
     } finally {

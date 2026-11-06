@@ -18,7 +18,7 @@
  * Prints PASS / FAIL / SKIP per check; exits 1 on any FAIL.
  */
 import { type Db, Double, MongoClient } from "mongodb";
-import mysql, { type Connection } from "mysql2/promise";
+import type { Connection } from "mysql2/promise";
 import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry } from "../src/lib/activity";
 import { dateToIst, istToDate } from "../src/lib/ist";
 import { observationSchema } from "../src/lib/validators/observations";
@@ -32,6 +32,7 @@ import {
   type ReportContent,
 } from "../db/mongo/field_reports";
 import { selectRows } from "../db/mongo/queryable";
+import { appConnection } from "./lib/app-connection";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
 const SCRATCH = "zz_field_reports_check";
@@ -399,15 +400,7 @@ async function cleanupFixture(db: Db, my: Connection): Promise<void> {
 
 async function main(): Promise<void> {
   const env = loadEnv([...MYSQL_APP_KEYS, ...MONGO_KEYS]);
-  const my = await mysql.createConnection({
-    host: env.MYSQL_HOST,
-    port: Number(env.MYSQL_PORT),
-    user: env.MYSQL_USER,
-    password: env.MYSQL_PASSWORD,
-    database: env.MYSQL_DATABASE,
-    dateStrings: true,
-    decimalNumbers: true,
-  });
+  const my = await appConnection(env);
   const client = new MongoClient(env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
   try {
     await client.connect().catch(() => {
