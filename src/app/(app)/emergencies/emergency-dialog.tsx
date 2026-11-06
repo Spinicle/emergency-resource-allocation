@@ -67,6 +67,9 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [fields, setFields] = useState<FieldErrors>({});
+  // What the form opened with. The emergency prop can refetch while the dialog
+  // is open, so comparing against it would count a stale input as a change.
+  const [loaded, setLoaded] = useState(emergency);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,17 +80,23 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
     setPending(true);
     setFields({});
     try {
-      if (emergency) {
-        // The input shows minutes only, so an untouched start time isn't sent:
-        // it would drop the stored seconds.
+      if (loaded) {
+        // Only what the user changed, so a stale form can't undo someone else's
+        // edit. An untouched start time also keeps its seconds (the input shows minutes).
+        const name = text("name").trim();
+        const description = text("description").trim();
         const body: UpdateEmergencyInput = {
-          name: text("name"),
-          type: text("type") as UpdateEmergencyInput["type"],
-          description: text("description"),
-          status: text("status") as UpdateEmergencyInput["status"],
-          ...(startTime && startTime !== toDateTimeInput(emergency.start_time) && { start_time: startTime }),
+          ...(name !== loaded.name && { name }),
+          ...(text("type") !== loaded.type && { type: text("type") as UpdateEmergencyInput["type"] }),
+          ...(description !== (loaded.description ?? "") && { description }),
+          ...(text("status") !== loaded.status && { status: text("status") as UpdateEmergencyInput["status"] }),
+          ...(startTime && startTime !== toDateTimeInput(loaded.start_time) && { start_time: startTime }),
         };
-        await api(`/api/emergencies/${emergency.emergency_id}`, { method: "PATCH", body: JSON.stringify(body) });
+        if (Object.keys(body).length === 0) {
+          setOpen(false);
+          return;
+        }
+        await api(`/api/emergencies/${loaded.emergency_id}`, { method: "PATCH", body: JSON.stringify(body) });
         toast.success("Emergency updated");
         setOpen(false);
         onSaved?.();
@@ -117,7 +126,8 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setFields({});
+        if (next) setLoaded(emergency);
+        else setFields({});
       }}
     >
       <DialogTrigger asChild>
@@ -144,24 +154,24 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
           <FormField htmlFor="name" label="Name" error={fields.name}>
-            <Input id="name" name="name" defaultValue={emergency?.name} aria-invalid={!!fields.name} autoFocus />
+            <Input id="name" name="name" defaultValue={loaded?.name} aria-invalid={!!fields.name} autoFocus />
           </FormField>
           <div className="grid gap-3 sm:grid-cols-2">
             <FormField htmlFor="type" label="Type" error={fields.type}>
               <ChoiceSelect
                 id="type"
                 name="type"
-                defaultValue={emergency?.type ?? "FLOOD"}
+                defaultValue={loaded?.type ?? "FLOOD"}
                 options={EMERGENCY_TYPES}
                 invalid={!!fields.type}
               />
             </FormField>
-            {emergency && (
+            {loaded && (
               <FormField htmlFor="status" label="Status" error={fields.status}>
                 <ChoiceSelect
                   id="status"
                   name="status"
-                  defaultValue={emergency.status}
+                  defaultValue={loaded.status}
                   options={EDIT_STATUSES}
                   invalid={!!fields.status}
                 />
@@ -177,7 +187,7 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
               id="start_time"
               name="start_time"
               type="datetime-local"
-              defaultValue={toDateTimeInput(emergency?.start_time)}
+              defaultValue={toDateTimeInput(loaded?.start_time)}
               aria-invalid={!!fields.start_time}
             />
           </FormField>
@@ -185,7 +195,7 @@ export function EmergencyDialog({ emergency, onSaved }: { emergency?: EmergencyH
             <Textarea
               id="description"
               name="description"
-              defaultValue={emergency?.description ?? ""}
+              defaultValue={loaded?.description ?? ""}
               aria-invalid={!!fields.description}
             />
           </FormField>
