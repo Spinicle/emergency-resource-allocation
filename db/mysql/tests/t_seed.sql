@@ -12,7 +12,7 @@
 --
 -- Each check appends [section, check, expected, actual, result] to @results,
 -- where result is PASS, FAIL or SKIP; db:test fails only on a FAIL cell. Same
--- pattern as t_part1.sql: the append line is repeated on purpose, never PREPAREd
+-- pattern as the t_p1_*.sql files: the append line is repeated on purpose, never PREPAREd
 -- (MySQL fixes user-variable types at PREPARE time).
 --
 -- Rows left by an interrupted db:race (names starting zz_) are left out wherever
