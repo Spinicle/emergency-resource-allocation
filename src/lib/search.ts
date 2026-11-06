@@ -27,9 +27,10 @@ const MIN_WORD_LENGTH = 3;
  */
 export function toBooleanQuery(input: string): string | null {
   // \p{L}, \p{M} and \p{N} are letters, their combining marks (needed for scripts
-  // like Devanagari) and digits, in any script. Everything else,
-  // including every boolean-mode operator, acts as a separator and is dropped.
-  const words = input.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+  // like Devanagari) and digits, in any script. `_` stays too, because InnoDB's
+  // full-text parser keeps it inside a word. Everything else, including every
+  // boolean-mode operator, acts as a separator and is dropped.
+  const words = input.toLowerCase().match(/[\p{L}\p{M}\p{N}_]+/gu) ?? [];
   const terms = [...new Set(words)].filter((w) => w.length >= MIN_WORD_LENGTH && !STOPWORDS.has(w));
   return terms.length > 0 ? terms.map((w) => `+${w}*`).join(" ") : null;
 }

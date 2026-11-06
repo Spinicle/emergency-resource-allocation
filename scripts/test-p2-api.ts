@@ -65,7 +65,7 @@ async function signIn(email: string): Promise<Call> {
 }
 
 /** Valid text but invalid boolean-mode syntax, plus T17's injection attempt. */
-const HOSTILE_SEARCHES = ["' OR 1=1 --", "--", "+", "+-", '"', "(((", "a* *b", "@3", "<>~", "%", "\\"];
+const HOSTILE_SEARCHES = ["' OR 1=1 --", "' OR_1=1 --", "--", "+", "+-", '"', "(((", "a* *b", "@3", "<>~", "%", "\\", "_", "___"];
 
 async function testEmergencies(my: Connection): Promise<void> {
   console.log("\nP2.1 Emergencies and impacts");
@@ -161,6 +161,9 @@ async function testEmergencies(my: Connection): Promise<void> {
   check("an invalid filter -> 400", (await coord("GET", "/api/emergencies?status=NOPE")).status === 400);
   check("full-text search finds it by description", inList(await coord("GET", `/api/emergencies?q=${RUN}`)));
   check("full-text prefix match works", inList(await coord("GET", "/api/emergencies?q=cyclon")));
+  // The name's first word holds underscores: InnoDB indexes it as one token.
+  const underscored = await coord("GET", `/api/emergencies?q=${ZZ}${RUN}`);
+  check("an underscore term -> 200 and finds it", underscored.status === 200 && inList(underscored), underscored);
   for (const text of HOSTILE_SEARCHES) {
     const r = await coord("GET", `/api/emergencies?q=${encodeURIComponent(text)}`);
     check(`T17 search ${JSON.stringify(text)} -> 200, no rows`, r.status === 200 && r.data?.length === 0, r);
