@@ -1,5 +1,5 @@
 import "server-only";
-import type { PoolConnection, RowDataPacket } from "mysql2/promise";
+import type { PoolConnection } from "mysql2/promise";
 import type { Session } from "@/lib/auth";
 import type { EmergencyHeader } from "@/lib/emergency-types";
 import { HttpError } from "@/lib/http";
@@ -12,10 +12,8 @@ const HEADER_SQL = `SELECT emergency_id, name, type, status, start_time, end_tim
                       FROM emergency WHERE emergency_id = ?`;
 
 /** The emergency's own columns, or null. With conn, read inside that transaction. */
-export async function loadEmergencyHeader(id: number, conn?: PoolConnection): Promise<EmergencyHeader | null> {
-  if (!conn) return queryOne<EmergencyHeader>(HEADER_SQL, [id]);
-  const [rows] = await conn.query<RowDataPacket[]>(HEADER_SQL, [id]);
-  return (rows[0] as EmergencyHeader | undefined) ?? null;
+export function loadEmergencyHeader(id: number, conn?: PoolConnection): Promise<EmergencyHeader | null> {
+  return queryOne<EmergencyHeader>(HEADER_SQL, [id], conn);
 }
 
 export function emergencyNotFound(id: number): HttpError {

@@ -212,7 +212,7 @@ export const PATCH = handle<Ctx>(async (req, ctx) => {
       result.closing ? "EMERGENCY_CLOSED" : "EMERGENCY_UPDATED",
       { type: "EMERGENCY", id },
       id,
-      { name: result.header.name, changed: result.changed, ...(result.status && result.status) },
+      { name: result.header.name, changed: result.changed, ...result.status },
     );
   }
   return ok(result.header);
