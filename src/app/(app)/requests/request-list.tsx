@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { InlineError } from "@/app/(app)/allocate/bits";
-import { humanize, withQuery } from "@/app/(app)/emergencies/format";
+import { humanizedOptions, withQuery } from "@/app/(app)/emergencies/format";
 import { DataTable } from "@/components/data-table";
+import { ALL, FilterSelect } from "@/components/filter-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useLastValue } from "@/hooks/use-last-value";
 import { useApi } from "@/lib/client";
 import type { EmergencyRow } from "@/lib/emergency-types";
 import { REQUEST_STATUSES, URGENCIES } from "@/lib/enums";
@@ -22,43 +23,6 @@ import { requestColumns } from "./request-columns";
 // /requests: the filters and full-text search run in MySQL through the query
 // string; DataTable sorts and pages what comes back. The API limits a Field
 // Officer to their own requests.
-
-/** Radix Select items can't have an empty value, so "all" is its own value. */
-const ALL = "ALL";
-
-type Option = { value: string; label: string };
-
-function FilterSelect({
-  label,
-  allLabel,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  allLabel: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Option[];
-}) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger aria-label={`Filter by ${label}`} className="w-48">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL}>{allLabel}</SelectItem>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            {o.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-const words = (values: readonly string[]): Option[] => values.map((value) => ({ value, label: humanize(value) }));
 
 export function RequestList({ canCreate }: { canCreate: boolean }) {
   const router = useRouter();
@@ -78,11 +42,7 @@ export function RequestList({ canCreate }: { canCreate: boolean }) {
     }),
   );
 
-  // A new filter is a new SWR key, so list.data is undefined until it answers.
-  // Showing the last rows meanwhile keeps the table mounted, with its sort.
-  const [lastRows, setLastRows] = useState<RequestRow[]>();
-  if (list.data && list.data !== lastRows) setLastRows(list.data);
-  const rows = list.data ?? lastRows;
+  const rows = useLastValue(list.data);
 
   return (
     <div className="flex flex-col gap-4">
@@ -101,20 +61,23 @@ export function RequestList({ canCreate }: { canCreate: boolean }) {
           value={emergency}
           onChange={setEmergency}
           options={(emergencies.data ?? []).map((e) => ({ value: String(e.emergency_id), label: e.name }))}
+          className="w-48"
         />
         <FilterSelect
           label="status"
           allLabel="All statuses"
           value={status}
           onChange={setStatus}
-          options={words(REQUEST_STATUSES)}
+          options={humanizedOptions(REQUEST_STATUSES)}
+          className="w-48"
         />
         <FilterSelect
           label="urgency"
           allLabel="Any urgency"
           value={urgency}
           onChange={setUrgency}
-          options={words(URGENCIES)}
+          options={humanizedOptions(URGENCIES)}
+          className="w-48"
         />
         {canCreate && (
           <Button size="sm" asChild className="ml-auto">

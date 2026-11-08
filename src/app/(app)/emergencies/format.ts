@@ -7,6 +7,11 @@ export function humanize(value: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** A filter dropdown's options from a list of status words. */
+export function humanizedOptions(values: readonly string[]): { value: string; label: string }[] {
+  return values.map((value) => ({ value, label: humanize(value) }));
+}
+
 /** "2026-11-05 14:30:00" -> "2026-11-05T14:30", what <input type="datetime-local"> expects. */
 export function toDateTimeInput(value: string | null | undefined): string {
   return value ? value.slice(0, 16).replace(" ", "T") : "";
