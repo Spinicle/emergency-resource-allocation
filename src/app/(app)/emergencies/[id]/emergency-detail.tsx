@@ -2,10 +2,12 @@
 
 import { ArrowLeft, Construction, Lock } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
+import { emergencyRequestColumns } from "@/app/(app)/requests/request-columns";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
 import {
   AlertDialog,
@@ -25,14 +27,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, useApi } from "@/lib/client";
 import type { EmergencyDetail, ImpactRow, ImpactUpdated, ObservationRow } from "@/lib/emergency-types";
 import { IMPACT_STATUSES } from "@/lib/enums";
+import type { RequestRow } from "@/lib/request-types";
 import { PhaseBadge } from "../badges";
 import { EmergencyDialog } from "../emergency-dialog";
 import { humanize } from "../format";
 import { AddImpactDialog } from "./add-impact-dialog";
 
-// /emergencies/[id]: header with edit and close, then tabs. Impacts and the
-// observations timeline are live; field reports, requests and unmet demand
-// arrive with P2.3, P2.2 and P2.5.
+// /emergencies/[id]: header with edit and close, then tabs. Impacts, the
+// observations timeline and requests are live; field reports and unmet demand
+// arrive with P2.3 and P2.5.
 
 /** One impact's status: a Select for writers (PATCH /api/impacts/[id]), a badge otherwise. */
 function ImpactStatusCell({ impact, editable, onChanged }: { impact: ImpactRow; editable: boolean; onChanged: () => void }) {
@@ -140,6 +143,24 @@ function Placeholder({ task, children }: { task: string; children: React.ReactNo
         {children}
       </CardContent>
     </Card>
+  );
+}
+
+/** The Requests tab. The API limits a Field Officer to their own, like the counts above. */
+function EmergencyRequests({ emergencyId, canEdit }: { emergencyId: number; canEdit: boolean }) {
+  const router = useRouter();
+  const list = useApi<RequestRow[]>(`/api/requests?emergency=${emergencyId}`);
+
+  if (list.error && !list.data) return <InlineError error={list.error} onRetry={() => void list.mutate()} />;
+  if (!list.data) return <Skeleton className="h-48 w-full" />;
+  return (
+    <DataTable
+      columns={emergencyRequestColumns}
+      data={list.data}
+      getRowId={(r) => String(r.request_id)}
+      onRowClick={(r) => router.push(`/requests/${r.request_id}`)}
+      emptyMessage={canEdit ? "No requests for this emergency yet." : "You have no requests for this emergency."}
+    />
   );
 }
 
@@ -332,12 +353,7 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
         </TabsContent>
 
         <TabsContent value="requests">
-          <Placeholder task="P2.2">
-            <p>
-              {counts.requests} {canEdit ? "" : "of your "}request{counts.requests === 1 ? "" : "s"} for this
-              emergency.
-            </p>
-          </Placeholder>
+          <EmergencyRequests emergencyId={emergency.emergency_id} canEdit={canEdit} />
         </TabsContent>
 
         <TabsContent value="unmet">
