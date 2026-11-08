@@ -5,17 +5,22 @@
  * cookies, real MySQL and MongoDB. P2.1: each "Done when", RBAC, filters,
  * full-text search and T17, the CLOSED and type rules. P2.2: the /allocate rank
  * of a new CRITICAL item, rollback, create and cancel rules, roles, filters.
+ * P2.3: the field report seed, the read API, and a report filed for every
+ * emergency type then found by emergency, distance and text.
  *
  *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
  *   3. npm run api:test:p2    (API_BASE_URL if the app isn't on http://localhost:3000)
  *
- * Fixtures use zz_p21_ / zz_p22_ names and are removed at the end (also after a
+ * Fixtures use zz_p21_ / zz_p22_ / zz_p23_ names and are removed at the end (also after a
  * failure, and left-overs from an aborted run at the start), so db:test stays green.
  * Exits 1 if any check fails.
  */
 import { type Db, MongoClient } from "mongodb";
 import type { Connection, RowDataPacket } from "mysql2/promise";
+import { seedTime } from "../db/mongo/activity_backfill";
+import { EMERGENCY_TYPES } from "../src/lib/enums";
+import { dateToIst } from "../src/lib/ist";
 import { appConnection } from "./lib/app-connection";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
@@ -23,6 +28,7 @@ const BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
 const PASSWORD = "Eras@2026"; // the seeded local-dev password (HANDOFF 4.8)
 const ZZ = "zz_p21_"; // fixture prefix: emergency names and grid ids
 const ZZ_REQ = "zz_p22_"; // P2.2's prefix: those, and request descriptions
+const ZZ_REP = "zz_p23_"; // P2.3's prefix: emergency names and grid ids
 const RUN = Date.now().toString(36); // unique per run, for search terms and grid ids
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -520,10 +526,291 @@ async function cleanupRequests(my: Connection, db: Db): Promise<void> {
   await my.query("DELETE FROM resource_request WHERE request_id IN (?)", [ids]);
 }
 
+/** Great-circle distance in km, R = 6371 like fn_distance_km. */
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const a =
+    Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lng2 - lng1) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
+
+/** 07_seed's two latest observations per impact, newest first, as affected/severity. */
+const SEEDED_LATEST: Record<string, string> = {
+  "BLR-BELLANDUR": "70/CRITICAL 55/HIGH",
+  "BLR-KORAMANGALA": "12/LOW 25/MODERATE",
+  "BLR-MAHADEVAPURA": "42/HIGH 30/MODERATE",
+  "BLR-YELAHANKA": "2/LOW 6/LOW",
+  "KDG-BHAGAMANDALA": "25/MODERATE 15/LOW",
+  "KDG-MADIKERI": "55/CRITICAL 40/HIGH",
+  "KDG-MAKKANDUR": "65/HIGH 75/CRITICAL",
+  "MYS-NANJANGUD": "4/LOW 12/MODERATE",
+  "MYS-NR-MOHALLA": "5/LOW 20/MODERATE",
+};
+
+/**
+ * The seed's reports against MySQL. Only non-fixture rows from before the seed
+ * time count, so a report filed through the form later can't fail these.
+ */
+async function testReportSeed(my: Connection, db: Db): Promise<void> {
+  console.log("\nP2.3 Field report seed");
+  const seededAt = await seedTime(my);
+  const cutoff = dateToIst(seededAt);
+
+  const [rows] = await my.query<RowDataPacket[]>(
+    `SELECT o.observation_id, o.impact_id, ei.emergency_id, e.type, e.name, l.grid_id, l.latitude, l.longitude
+       FROM impact_observation o
+       JOIN emergency_impact ei ON ei.impact_id   = o.impact_id
+       JOIN emergency e         ON e.emergency_id = ei.emergency_id
+       JOIN location l          ON l.location_id  = ei.location_id
+      WHERE e.name NOT LIKE 'zz\\_%' AND o.observed_at <= ?`,
+    [cutoff],
+  );
+  const docs = await db.collection("field_reports").find({ reported_at: { $lte: seededAt } }).toArray();
+  const byObservation = new Map(rows.map((r) => [r.observation_id as number, r]));
+
+  check("field_reports count = impact_observation count", docs.length === rows.length, { docs: docs.length, rows: rows.length });
+  const missing = docs.filter((d) => !byObservation.has(d.observation_id)).map((d) => d.observation_id);
+  const docIds = new Set(docs.map((d) => d.observation_id as number));
+  const noReport = rows.filter((r) => !docIds.has(r.observation_id)).map((r) => r.observation_id);
+  check("every report has its observation and every observation its report", missing.length === 0 && noReport.length === 0, { missing, noReport });
+
+  const mismatched = docs.filter((d) => {
+    const row = byObservation.get(d.observation_id);
+    return !row || row.emergency_id !== d.emergency_id || row.impact_id !== d.impact_id || row.type !== d.emergency_type;
+  });
+  check("each report's emergency, impact and type match MySQL", mismatched.length === 0, mismatched.map((d) => d.observation_id));
+
+  const far = docs.filter((d) => {
+    const row = byObservation.get(d.observation_id);
+    if (!row) return false;
+    const [lng, lat] = d.location.coordinates as [number, number];
+    return distanceKm(Number(row.latitude), Number(row.longitude), lat, lng) > 2.05;
+  });
+  check("every point is within 2.05 km of its impact", far.length === 0, far.map((d) => d.observation_id));
+
+  check("nothing on KDG-NAPOKLU", rows.every((r) => r.grid_id !== "KDG-NAPOKLU"));
+  const mysuru = docs.filter((d) => byObservation.get(d.observation_id)?.name === "Mysuru Dengue Outbreak");
+  check("Mysuru has exactly 9 reports", mysuru.length === 9, mysuru.length);
+  const filed = await db.collection("activity_log").countDocuments({ action: "FIELD_REPORT_FILED", ts: { $lte: seededAt } });
+  check("FIELD_REPORT_FILED entries = report count", filed === docs.length, { filed, docs: docs.length });
+
+  const [[{ later }]] = await my.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS later
+       FROM impact_observation o
+       JOIN emergency_impact ei ON ei.impact_id   = o.impact_id
+       JOIN emergency e         ON e.emergency_id = ei.emergency_id
+      WHERE e.name NOT LIKE 'zz\\_%' AND o.observed_at > ?`,
+    [cutoff],
+  );
+  if (Number(later) > 0) {
+    console.log(`  SKIP  each impact's two latest observations (${later} observations filed since the seed; run db:reset)`);
+    return;
+  }
+  const [latest] = await my.query<RowDataPacket[]>(
+    `WITH ranked AS (
+       SELECT l.grid_id, o.affected_percentage, o.severity,
+              ROW_NUMBER() OVER (PARTITION BY o.impact_id ORDER BY o.observed_at DESC) AS rn
+         FROM impact_observation o
+         JOIN emergency_impact ei ON ei.impact_id   = o.impact_id
+         JOIN emergency e         ON e.emergency_id = ei.emergency_id
+         JOIN location l          ON l.location_id  = ei.location_id
+        WHERE e.name NOT LIKE 'zz\\_%')
+     SELECT grid_id, affected_percentage, severity FROM ranked WHERE rn <= 2 ORDER BY grid_id, rn`,
+  );
+  const actual: Record<string, string> = {};
+  for (const r of latest) {
+    const value = `${Number(r.affected_percentage)}/${r.severity}`;
+    actual[r.grid_id] = actual[r.grid_id] ? `${actual[r.grid_id]} ${value}` : value;
+  }
+  check("each impact's two latest observations are still 07_seed's", JSON.stringify(actual) === JSON.stringify(SEEDED_LATEST), actual);
+}
+
+/** details that satisfy each emergency type's rules. */
+function detailsForType(type: string): Record<string, unknown> {
+  if (type === "FLOOD") return { water_level_m: 1.2, roads_submerged: 2, trend: "RISING" };
+  if (type === "EARTHQUAKE") return { magnitude: 5.5, buildings_collapsed: 1, trend: "STEADY" };
+  if (type === "EPIDEMIC") return { new_cases: 3, deaths: 0, trend: "FALLING" };
+  return { checked_by: "zz test", spread_km: 3 };
+}
+
+async function testReports(my: Connection, db: Db): Promise<void> {
+  console.log("\nP2.3 Field report API");
+  const coord = await signIn("coord@eras.test");
+  const admin = await signIn("admin@eras.test");
+  const field1 = await signIn("field1@eras.test");
+  const manager = await signIn("cm.central@eras.test");
+  const anonymous = client();
+
+  const [[bellandur]] = await my.query<RowDataPacket[]>(
+    `SELECT ei.emergency_id, ei.impact_id, l.latitude, l.longitude
+       FROM emergency_impact ei JOIN location l ON l.location_id = ei.location_id
+      WHERE l.grid_id = 'BLR-BELLANDUR'`,
+  );
+  const [[sample]] = await my.query<RowDataPacket[]>(
+    "SELECT MIN(observation_id) AS id FROM impact_observation WHERE impact_id = ?",
+    [bellandur.impact_id],
+  );
+  const lat = Number(bellandur.latitude);
+  const lng = Number(bellandur.longitude);
+  const reports = db.collection("field_reports");
+
+  // Roles, on both routes.
+  for (const path of ["/api/reports", `/api/reports/${sample.id}`]) {
+    check(`signed out ${path} -> 401`, (await anonymous("GET", path)).status === 401);
+    check(`Center Manager ${path} -> 403`, (await manager("GET", path)).status === 403);
+    for (const [who, call] of [["Admin", admin], ["Coordinator", coord], ["Field Officer", field1]] as const) {
+      check(`${who} ${path} -> 200`, (await call("GET", path)).status === 200);
+    }
+  }
+
+  // The plain list, and what MySQL adds to it.
+  const all = await field1("GET", "/api/reports");
+  check("the plain list isn't capped and its total matches", all.data?.capped === false && all.data?.total === all.data?.reports?.length, all.data?.total);
+  const times: string[] = all.data?.reports?.map((r: { reported_at: string }) => r.reported_at) ?? [];
+  check("the plain list is newest first", times.every((t, i) => i === 0 || times[i - 1] >= t));
+  const first = all.data?.reports?.[0];
+  check("rows are enriched from MySQL",
+    all.data?.reports?.every((r: Record<string, unknown>) =>
+      r.grid_id && r.severity && r.emergency_name && r.emergency_status && r.reporter && r.observed_at && r.affected_percentage !== null), first);
+  check("times are IST strings and no Mongo _id leaks", /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(first?.reported_at ?? "") && !("_id" in (first ?? {})), first);
+  check("distance is null outside a near search", first?.distance_m === null, first);
+
+  // Filters.
+  const byEmergency = await coord("GET", `/api/reports?emergency=${bellandur.emergency_id}`);
+  check("?emergency= returns only that emergency, with the right total",
+    byEmergency.data?.reports?.every((r: { emergency_id: number }) => r.emergency_id === bellandur.emergency_id) &&
+      byEmergency.data?.total === (await reports.countDocuments({ emergency_id: bellandur.emergency_id })), byEmergency.data?.total);
+  const byType = await coord("GET", "/api/reports?type=EPIDEMIC");
+  check("?type= returns only that type", byType.data?.reports?.length > 0 && byType.data.reports.every((r: { emergency_type: string }) => r.emergency_type === "EPIDEMIC"), byType.data?.total);
+  const neither = await coord("GET", `/api/reports?emergency=${bellandur.emergency_id}&type=EPIDEMIC`);
+  check("filters combine", neither.status === 200 && neither.data?.total === 0, neither.data?.total);
+
+  // Near.
+  const near = await coord("GET", `/api/reports?near=${lat},${lng}&km=1.5`);
+  const distances: number[] = near.data?.reports?.map((r: { distance_m: number }) => r.distance_m) ?? [];
+  check("near finds reports, all within km", distances.length > 0 && distances.every((d) => d <= 1500), distances.slice(-3));
+  check("near is sorted by distance", distances.every((d, i) => i === 0 || distances[i - 1] <= d));
+  const nearDefault = await coord("GET", `/api/reports?near=${lat},${lng}`);
+  check("near defaults to 5 km", nearDefault.data?.reports?.every((r: { distance_m: number }) => r.distance_m <= 5000) && nearDefault.data?.total >= near.data?.total, nearDefault.data?.total);
+  const nearOther = await coord("GET", `/api/reports?near=${lat},${lng}&type=EPIDEMIC`);
+  check("near applies the filters", nearOther.status === 200 && nearOther.data?.total === 0, nearOther.data?.total);
+  const blankQ = await coord("GET", `/api/reports?q=&near=${lat},${lng}`);
+  check("a blank q doesn't conflict with near", blankQ.status === 200, blankQ.error);
+
+  // Text.
+  const text = await coord("GET", "/api/reports?q=evacuation");
+  check("q finds a known word, with the right total",
+    text.data?.reports?.length > 0 && text.data?.total === (await reports.countDocuments({ $text: { $search: "evacuation" } })), text.data?.total);
+  const textType = await coord("GET", "/api/reports?q=landslide&type=LANDSLIDE");
+  check("q applies the filters", textType.data?.reports?.length > 0 && textType.data.reports.every((r: { emergency_type: string }) => r.emergency_type === "LANDSLIDE"), textType.data?.total);
+  const phrase = await coord("GET", `/api/reports?q=${encodeURIComponent('"drinking water"')}`);
+  check("a quoted phrase is searched", phrase.status === 200 && phrase.data?.total > 0, phrase.data?.total);
+  for (const term of HOSTILE_SEARCHES) {
+    const res = await coord("GET", `/api/reports?q=${encodeURIComponent(term)}`);
+    check(`hostile search ${JSON.stringify(term)} -> 200`, res.status === 200, res);
+  }
+
+  // Refusals.
+  const both = await coord("GET", `/api/reports?q=water&near=${lat},${lng}`);
+  check("q + near -> 400 on near", both.status === 400 && both.error?.code === "VALIDATION" && !!both.error?.fields?.near, both);
+  for (const bad of ["abc", "12.9", "91,77", "12,181", "12,abc", "1e1,77", "12.9,"]) {
+    const res = await coord("GET", `/api/reports?near=${encodeURIComponent(bad)}`);
+    check(`near=${bad} -> 400 on near`, res.status === 400 && !!res.error?.fields?.near, res);
+  }
+  for (const bad of ["0", "0.05", "51", "abc", "-1", "1e1"]) {
+    const res = await coord("GET", `/api/reports?near=${lat},${lng}&km=${bad}`);
+    check(`km=${bad} -> 400 on km`, res.status === 400 && !!res.error?.fields?.km, res);
+  }
+  check("a bad km is refused without near too", (await coord("GET", "/api/reports?km=99")).status === 400);
+  check("a valid km without near is ignored", (await coord("GET", "/api/reports?km=3")).status === 200);
+  check("a bad type -> 400", (await coord("GET", "/api/reports?type=METEOR")).status === 400);
+  check("a bad emergency -> 400", (await coord("GET", "/api/reports?emergency=abc")).status === 400);
+
+  // One report.
+  for (const bad of ["abc", "0", "-1", "1e3"]) {
+    check(`/api/reports/${bad} -> 400`, (await coord("GET", `/api/reports/${bad}`)).status === 400);
+  }
+  check("a missing report -> 404", (await coord("GET", "/api/reports/2147483647")).status === 404);
+  const one = await field1("GET", `/api/reports/${sample.id}`);
+  check("the detail has the document and the MySQL row",
+    one.data?.observation_id === sample.id && !!one.data?.notes && one.data?.details?.water_level_m !== undefined &&
+      Array.isArray(one.data?.needs_observed) && !!one.data?.severity && one.data?.grid_id === "BLR-BELLANDUR" && !("_id" in (one.data ?? {})), one.data);
+
+  // Done when: a report filed for every type is found by emergency, distance and text.
+  let otherEmergency = 0;
+  let otherImpact = 0;
+  for (const [i, type] of EMERGENCY_TYPES.entries()) {
+    const created = await coord("POST", "/api/emergencies", { name: `${ZZ_REP}${RUN} ${type}`, type });
+    const emergencyId: number = created.data?.emergency_id;
+    const siteLat = 20 + i;
+    const siteLng = 80.5;
+    const impact = await coord("POST", `/api/emergencies/${emergencyId}/impacts`, {
+      grid_id: `${ZZ_REP}${RUN}-${i}`,
+      latitude: siteLat,
+      longitude: siteLng,
+    });
+    const impactId: number = impact.data?.impact_id;
+    if (type === "OTHER") {
+      otherEmergency = emergencyId;
+      otherImpact = impactId;
+    }
+
+    // Letters and digits only, so the word doesn't depend on how MongoDB splits text.
+    const word = `zzp23${RUN}${type.toLowerCase()}`;
+    const filed = await field1("POST", "/api/observations", {
+      impact_id: impactId,
+      emergency_type: type,
+      affected_percentage: 30,
+      severity: "HIGH",
+      details: detailsForType(type),
+      notes: `Field check ${word} at the site.`,
+    });
+    check(`${type}: filed -> 201`, filed.status === 201, filed);
+    const id: number = filed.data?.observation_id;
+    const has = (res: Res) => res.data?.reports?.some((r: { observation_id: number }) => r.observation_id === id);
+
+    check(`${type}: found by emergency`, has(await coord("GET", `/api/reports?emergency=${emergencyId}`)));
+    check(`${type}: found near its impact`, has(await coord("GET", `/api/reports?near=${siteLat},${siteLng}&km=1`)));
+    const search = await coord("GET", `/api/reports?q=${word}`);
+    check(`${type}: found by a word in its notes`, has(search) && search.data?.total === 1, search.data);
+    const detail = await coord("GET", `/api/reports/${id}`);
+    check(`${type}: its detail shows what was filed`,
+      detail.data?.emergency_type === type && detail.data?.severity === "HIGH" && detail.data?.affected_percentage === 30 &&
+        Object.keys(detailsForType(type)).every((k) => detail.data?.details?.[k] !== undefined), detail.data);
+  }
+
+  const wrongType = await field1("POST", "/api/observations", {
+    impact_id: otherImpact,
+    emergency_type: "FLOOD",
+    affected_percentage: 10,
+    severity: "LOW",
+    details: detailsForType("FLOOD"),
+  });
+  check("a type that doesn't match the emergency -> 400 on emergency_type", wrongType.status === 400 && !!wrongType.error?.fields?.emergency_type, wrongType);
+
+  // HANDOFF 4.4's known gap: a report whose observation row is missing still shows.
+  const orphanId = 2147483000;
+  await reports.insertOne({
+    emergency_id: otherEmergency,
+    impact_id: otherImpact,
+    observation_id: orphanId,
+    emergency_type: "OTHER",
+    reported_by: { user_id: 1, name: "zz orphan reporter" },
+    reported_at: new Date(),
+    location: { type: "Point", coordinates: [80.5, 27] },
+    details: {},
+  });
+  const orphans = await coord("GET", `/api/reports?emergency=${otherEmergency}`);
+  const orphan = orphans.data?.reports?.find((r: { observation_id: number }) => r.observation_id === orphanId);
+  check("a report with no observation row shows, with null MySQL fields and the document's reporter",
+    orphan?.severity === null && orphan?.grid_id === null && orphan?.reporter === "zz orphan reporter", orphan);
+}
+
 /** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
 async function cleanup(my: Connection, db: Db): Promise<void> {
   await cleanupRequests(my, db);
-  for (const prefix of [ZZ, ZZ_REQ]) {
+  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP]) {
     const like = `${prefix.replaceAll("_", "\\_")}%`;
     const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id FROM emergency WHERE name LIKE ?", [like]);
     for (const { emergency_id } of emergencies) {
@@ -558,6 +845,8 @@ async function main(): Promise<void> {
     try {
       await testEmergencies(my);
       await testRequests(my, db);
+      await testReportSeed(my, db);
+      await testReports(my, db);
     } finally {
       await cleanup(my, db);
     }
