@@ -6,7 +6,8 @@
  * full-text search and T17, the CLOSED and type rules. P2.2: the /allocate rank
  * of a new CRITICAL item, rollback, create and cancel rules, roles, filters.
  * P2.3: the field report seed, the read API, and a report filed for every
- * emergency type then found by emergency, distance and text.
+ * emergency type then found by emergency, distance and text. P2.4: the dashboard
+ * for every role: KPIs, scoping, pipeline shapes and a warm timing check.
  *
  *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
@@ -19,8 +20,10 @@
 import { type Db, MongoClient } from "mongodb";
 import type { Connection, RowDataPacket } from "mysql2/promise";
 import { seedTime } from "../db/mongo/activity_backfill";
+import { ACTIVITY_ENTITY_TYPES } from "../src/lib/activity";
+import { ACTIVITY_FEED_LIMIT, LATEST_REPORTS_LIMIT, REPORT_WINDOW_DAYS, TOP_NEEDS_LIMIT } from "../src/lib/dashboard-types";
 import { EMERGENCY_TYPES } from "../src/lib/enums";
-import { dateToIst } from "../src/lib/ist";
+import { dateToIst, istToDate } from "../src/lib/ist";
 import { appConnection } from "./lib/app-connection";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
@@ -807,6 +810,225 @@ async function testReports(my: Connection, db: Db): Promise<void> {
     orphan?.severity === null && orphan?.grid_id === null && orphan?.reporter === "zz orphan reporter", orphan);
 }
 
+/** The first column of the first row. */
+async function scalar(my: Connection, sql: string, params: unknown[] = []): Promise<unknown> {
+  const [rows] = await my.query<RowDataPacket[]>(sql, params);
+  return Object.values(rows[0])[0];
+}
+
+/** One numeric column, every row. */
+async function numbers(my: Connection, sql: string, params: unknown[] = []): Promise<number[]> {
+  const [rows] = await my.query<RowDataPacket[]>(sql, params);
+  return rows.map((r) => Number(Object.values(r)[0]));
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DASHBOARD_LIMIT_MS = 1000;
+
+type FeedEntry = {
+  ts: string;
+  actor_user_id: number | null;
+  entity_type: string;
+  refs: { request_id?: number; center_id?: number } | null;
+  payload: Record<string, unknown> | null;
+};
+
+/**
+ * Runs first in main(), before other tests add fixtures. Numbers are compared
+ * with SQL and MongoDB read here, not hard-coded, because seeded expiry bands move
+ * at midnight. Scoping is read from the response's own fields.
+ */
+async function testDashboard(my: Connection, db: Db): Promise<void> {
+  console.log("\nP2.4 Dashboard");
+  const PATH = "/api/dashboard";
+  const EMAILS = {
+    admin: "admin@eras.test",
+    coord: "coord@eras.test",
+    field1: "field1@eras.test",
+    field2: "field2@eras.test",
+    central: "cm.central@eras.test",
+    kodagu: "cm.kodagu@eras.test",
+  } as const;
+  type Who = keyof typeof EMAILS;
+  const everyone = Object.keys(EMAILS) as Who[];
+
+  check("signed out -> 401", (await client()("GET", PATH)).status === 401);
+  const calls = {} as Record<Who, Call>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = {} as Record<Who, any>;
+  for (const who of everyone) {
+    calls[who] = await signIn(EMAILS[who]);
+    const res = await calls[who]("GET", PATH);
+    check(`${who} -> 200`, res.status === 200, res);
+    data[who] = res.data;
+  }
+  if (everyone.some((who) => !data[who])) return; // Reported above; the rest would only repeat it.
+
+  const userId = async (who: Who) => Number(await scalar(my, "SELECT user_id FROM `user` WHERE email = ?", [EMAILS[who]]));
+  const centerId = async (who: Who) => Number(await scalar(my, "SELECT center_id FROM `user` WHERE email = ?", [EMAILS[who]]));
+  const field1Id = await userId("field1");
+  const field2Id = await userId("field2");
+  const centralCenter = await centerId("central");
+  const kodaguCenter = await centerId("kodagu");
+
+  // KPIs
+  const active = Number(await scalar(my, "SELECT COUNT(*) FROM emergency WHERE status = 'ACTIVE'"));
+  const expected = {} as Record<Who, unknown[]>;
+  expected.admin = [
+    await scalar(my, "SELECT COUNT(*) FROM v_priority_queue"),
+    await scalar(my, "SELECT COUNT(*) FROM v_priority_queue WHERE urgency = 'CRITICAL'"),
+    await scalar(my, "SELECT COUNT(*) FROM v_expiring_stock"),
+    await scalar(my, "SELECT COUNT(*) FROM v_stock_availability WHERE usable_quantity = 0 AND center_status <> 'CLOSED'"),
+  ];
+  expected.coord = expected.admin;
+  for (const [who, id] of [["field1", field1Id], ["field2", field2Id]] as const) {
+    expected[who] = [
+      await scalar(my, "SELECT COUNT(*) FROM v_priority_queue q JOIN resource_request r ON r.request_id = q.request_id WHERE r.user_id = ?", [id]),
+      await scalar(my, "SELECT COUNT(*) FROM v_priority_queue q JOIN resource_request r ON r.request_id = q.request_id WHERE r.user_id = ? AND q.urgency = 'CRITICAL'", [id]),
+      null,
+      null,
+    ];
+  }
+  for (const [who, center] of [["central", centralCenter], ["kodagu", kodaguCenter]] as const) {
+    expected[who] = [
+      await scalar(my, "SELECT COUNT(DISTINCT request_item_id) FROM v_batch_suggestions WHERE center_id = ?", [center]),
+      await scalar(my, "SELECT COUNT(DISTINCT b.request_item_id) FROM v_batch_suggestions b JOIN v_priority_queue q ON q.request_item_id = b.request_item_id WHERE b.center_id = ? AND q.urgency = 'CRITICAL'", [center]),
+      await scalar(my, "SELECT COUNT(*) FROM v_expiring_stock WHERE center_id = ?", [center]),
+      await scalar(my, "SELECT COUNT(*) FROM v_stock_availability WHERE usable_quantity = 0 AND center_status <> 'CLOSED' AND center_id = ?", [center]),
+    ];
+  }
+  for (const who of everyone) {
+    const k = data[who].kpis;
+    check(`${who}: active emergencies`, k.active_emergencies === active, k);
+    const got = [k.open_items, k.critical_items, k.expiring_batches, k.out_of_stock];
+    const want = expected[who].map((v) => (v === null ? null : Number(v)));
+    check(`${who}: open, critical, expiring, out of stock`, JSON.stringify(got) === JSON.stringify(want), { got, want });
+  }
+
+  // Report pipelines: the IST days come from MySQL's own calendar
+  const today = String(await scalar(my, "SELECT CURDATE()"));
+  const firstDay = String(await scalar(my, "SELECT DATE_SUB(CURDATE(), INTERVAL ? DAY)", [REPORT_WINDOW_DAYS - 1]));
+  const from = istToDate(`${firstDay} 00:00:00`);
+  const to = new Date(istToDate(`${today} 00:00:00`).getTime() + DAY_MS);
+  const reports = db.collection("field_reports");
+  const windowCount = await reports.countDocuments({ reported_at: { $gte: from, $lt: to } });
+  const total = await reports.countDocuments({});
+
+  for (const who of everyone) {
+    const { reportsByDay: buckets, topNeeds: needs, summary } = data[who];
+    check(`${who}: ${REPORT_WINDOW_DAYS} day buckets`, buckets.length === REPORT_WINDOW_DAYS, buckets.length);
+    check(`${who}: the last bucket is today's IST date (MySQL CURDATE())`, buckets.at(-1)?.day === today, { got: buckets.at(-1)?.day, today });
+    check(`${who}: the first bucket is ${REPORT_WINDOW_DAYS - 1} days earlier`, buckets[0]?.day === firstDay, buckets[0]?.day);
+    const times: number[] = buckets.map((b: { day: string }) => Date.parse(`${b.day}T00:00:00Z`));
+    check(`${who}: buckets are consecutive days`, times.every((t, i) => i === 0 || t - times[i - 1] === DAY_MS), times);
+    const bucketSum = buckets.reduce((n: number, b: { total: number }) => n + b.total, 0);
+    check(`${who}: buckets add up to the reports in the window`, bucketSum === windowCount, { bucketSum, windowCount });
+    check(`${who}: each bucket's types add up to its total`,
+      buckets.every((b: { total: number; counts: Record<string, number> }) => Object.values(b.counts).reduce((n, c) => n + c, 0) === b.total));
+
+    check(`${who}: topNeeds at most ${TOP_NEEDS_LIMIT} and not empty`, needs.length > 0 && needs.length <= TOP_NEEDS_LIMIT, needs.length);
+    check(`${who}: topNeeds sorted descending`,
+      needs.every((n: { quantity: number }, i: number) => i === 0 || needs[i - 1].quantity >= n.quantity), needs);
+
+    const sum = (rows: { count: number }[]) => rows.reduce((n, r) => n + r.count, 0);
+    check(`${who}: summary.total is every report`, summary.total === total, summary.total);
+    check(`${who}: byType adds up to the total`, sum(summary.byType) === total, summary.byType);
+    check(`${who}: byTrend adds up to the total`, sum(summary.byTrend) === total, summary.byTrend);
+    check(`${who}: byTrend has a bucket for a missing trend`, summary.byTrend.some((t: { trend: unknown }) => t.trend === null), summary.byTrend);
+  }
+
+  const windowDocs = await reports
+    .find<{ needs_observed?: { item: string; est_qty?: number; unit?: string }[] }>(
+      { reported_at: { $gte: from, $lt: to } },
+      { projection: { needs_observed: 1 } },
+    )
+    .toArray();
+  const needTotals = new Map<string, number>();
+  for (const need of windowDocs.flatMap((d) => d.needs_observed ?? [])) {
+    const key = `${need.item}|${need.unit ?? ""}`;
+    needTotals.set(key, (needTotals.get(key) ?? 0) + (need.est_qty ?? 0));
+  }
+  const topQuantities = [...needTotals.values()].sort((a, b) => b - a).slice(0, TOP_NEEDS_LIMIT);
+  const topNeeds: { item: string; unit: string | null; quantity: number }[] = data.admin.topNeeds;
+  check("topNeeds matches a sum by item and unit",
+    JSON.stringify(topNeeds.map((n) => n.quantity)) === JSON.stringify(topQuantities) &&
+      topNeeds.every((n) => needTotals.get(`${n.item}|${n.unit ?? ""}`) === n.quantity),
+    { got: topNeeds, want: topQuantities });
+
+  // Latest reports: everyone who can open them, never a Center Manager
+  for (const who of ["admin", "coord", "field1", "field2"] as const) {
+    const latest: { reported_at: string; grid_id: unknown }[] = data[who].summary.latest;
+    check(`${who}: latest ${LATEST_REPORTS_LIMIT} reports, newest first, with MySQL fields`,
+      latest.length === LATEST_REPORTS_LIMIT && latest.every((r, i) => r.grid_id !== null && (i === 0 || latest[i - 1].reported_at >= r.reported_at)),
+      latest);
+  }
+  for (const who of ["central", "kodagu"] as const) {
+    check(`${who}: no reports in latest`, data[who].summary.latest.length === 0, data[who].summary.latest);
+  }
+
+  // Map: the same for every role
+  const impactCount = Number(await scalar(my, "SELECT COUNT(*) FROM emergency_impact ei JOIN emergency e ON e.emergency_id = ei.emergency_id WHERE e.status <> 'CLOSED'"));
+  const centerCount = Number(await scalar(my, "SELECT COUNT(*) FROM resource_center"));
+  const impacts: { grid_id: string; latest_severity: unknown }[] = data.admin.impacts;
+  const centers: unknown[] = data.admin.centers;
+  check("map: every impact of a non-CLOSED emergency", impacts.length === impactCount, impacts.length);
+  check("map: no impact of the CLOSED emergency", !impacts.some((i) => i.grid_id.startsWith("MYS-")), impacts);
+  check("map: Napoklu has no severity yet", impacts.find((i) => i.grid_id === "KDG-NAPOKLU")?.latest_severity === null, impacts);
+  check("map: every center", centers.length === centerCount, centers.length);
+  check("map: the same for every role",
+    everyone.every((who) => JSON.stringify([data[who].impacts, data[who].centers]) === JSON.stringify([impacts, centers])));
+
+  // Activity feed
+  const feeds = Object.fromEntries(everyone.map((who) => [who, data[who].recentActivity as FeedEntry[]])) as Record<Who, FeedEntry[]>;
+  for (const who of everyone) {
+    const feed = feeds[who];
+    check(`${who}: feed holds ${ACTIVITY_FEED_LIMIT} entries`, feed.length === ACTIVITY_FEED_LIMIT, feed.length);
+    check(`${who}: feed is newest first`, feed.every((e, i) => i === 0 || feed[i - 1].ts >= e.ts), feed.map((e) => e.ts));
+    check(`${who}: every entity type is a known one`,
+      feed.every((e) => (ACTIVITY_ENTITY_TYPES as readonly string[]).includes(e.entity_type)), feed.map((e) => e.entity_type));
+  }
+  const newest = await db.collection("activity_log").find().sort({ ts: -1 }).limit(1).next();
+  check("admin: feed starts at the newest entry", newest !== null && feeds.admin[0]?.ts === dateToIst(newest.ts), feeds.admin[0]?.ts);
+
+  const fieldReports = everyone.flatMap((who) => feeds[who]).filter((e) => e.entity_type === "FIELD_REPORT");
+  check("FIELD_REPORT entries carry the type their subject shows",
+    fieldReports.length > 0 && fieldReports.every((e) => typeof e.payload?.emergency_type === "string"), fieldReports.length);
+
+  // Scoping, from the fields the response carries
+  const requestsOf = (id: number) => numbers(my, "SELECT request_id FROM resource_request WHERE user_id = ?", [id]);
+  const field1Requests = await requestsOf(field1Id);
+  const field2Requests = await requestsOf(field2Id);
+  check("field1 and field2 have requests to tell apart", field1Requests.length > 0 && field2Requests.length > 0);
+  for (const [who, id, own, other] of [
+    ["field1", field1Id, field1Requests, field2Requests],
+    ["field2", field2Id, field2Requests, field1Requests],
+  ] as const) {
+    check(`${who}: every entry is theirs or on one of their requests`,
+      feeds[who].every((e) => e.actor_user_id === id || (e.refs?.request_id !== undefined && own.includes(e.refs.request_id))), feeds[who]);
+    check(`${who}: no entry is on the other officer's requests`,
+      !feeds[who].some((e) => e.refs?.request_id !== undefined && other.includes(e.refs.request_id)), feeds[who]);
+  }
+  for (const [who, own, other] of [
+    ["central", centralCenter, kodaguCenter],
+    ["kodagu", kodaguCenter, centralCenter],
+  ] as const) {
+    check(`${who}: every entry is at their center`, feeds[who].every((e) => e.refs?.center_id === own), feeds[who]);
+    check(`${who}: no entry is at the other manager's center`, !feeds[who].some((e) => e.refs?.center_id === other), feeds[who]);
+  }
+
+  // Done when: under a second for every role, warm (the calls above warmed it).
+  for (const who of everyone) {
+    let slowest = 0;
+    for (let run = 0; run < 5; run += 1) {
+      const started = performance.now();
+      await calls[who]("GET", PATH);
+      slowest = Math.max(slowest, performance.now() - started);
+    }
+    console.log(`        ${who}: slowest of 5 warm runs ${Math.round(slowest)} ms`);
+    check(`${who}: under ${DASHBOARD_LIMIT_MS} ms`, slowest < DASHBOARD_LIMIT_MS, Math.round(slowest));
+  }
+}
+
 /** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
 async function cleanup(my: Connection, db: Db): Promise<void> {
   await cleanupRequests(my, db);
@@ -843,6 +1065,7 @@ async function main(): Promise<void> {
     const db = mongo.db(env.MONGODB_DB);
     await cleanup(my, db);
     try {
+      await testDashboard(my, db);
       await testEmergencies(my);
       await testRequests(my, db);
       await testReportSeed(my, db);
