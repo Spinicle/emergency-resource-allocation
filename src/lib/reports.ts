@@ -41,12 +41,12 @@ type ReportDoc = {
 };
 
 /** What a list row needs from a document. */
-type ListDoc = Pick<
+export type ListDoc = Pick<
   ReportDoc,
   "observation_id" | "emergency_id" | "impact_id" | "emergency_type" | "reported_by" | "reported_at" | "location" | "details"
 > & { distance_m?: number };
 
-const LIST_FIELDS = {
+export const LIST_FIELDS = {
   _id: 0,
   observation_id: 1,
   emergency_id: 1,
@@ -120,7 +120,7 @@ type ObservationInfo = Pick<
 >;
 
 /** One query for a whole page of reports. */
-async function loadObservationInfo(ids: number[]): Promise<Map<number, ObservationInfo>> {
+export async function loadObservationInfo(ids: number[]): Promise<Map<number, ObservationInfo>> {
   if (ids.length === 0) return new Map(); // IN () is a syntax error
   const rows = await query<ObservationInfo>(
     `SELECT o.observation_id, o.severity, o.affected_percentage, o.observed_at,
@@ -136,7 +136,7 @@ async function loadObservationInfo(ids: number[]): Promise<Map<number, Observati
   return new Map(rows.map((r) => [r.observation_id, r]));
 }
 
-function toRow(doc: ListDoc, info: ObservationInfo | undefined): ReportRow {
+export function toRow(doc: ListDoc, info: ObservationInfo | undefined): ReportRow {
   const [longitude, latitude] = doc.location.coordinates;
   const trend = doc.details.trend;
   return {
