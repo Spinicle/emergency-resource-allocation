@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
+import { emergencyReportColumns } from "@/app/(app)/reports/report-columns";
 import { emergencyRequestColumns } from "@/app/(app)/requests/request-columns";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
 import {
@@ -27,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, useApi } from "@/lib/client";
 import type { EmergencyDetail, ImpactRow, ImpactUpdated, ObservationRow } from "@/lib/emergency-types";
 import { IMPACT_STATUSES } from "@/lib/enums";
+import type { ReportList } from "@/lib/report-types";
 import type { RequestRow } from "@/lib/request-types";
 import { PhaseBadge } from "../badges";
 import { EmergencyDialog } from "../emergency-dialog";
@@ -34,8 +36,8 @@ import { humanize } from "../format";
 import { AddImpactDialog } from "./add-impact-dialog";
 
 // /emergencies/[id]: header with edit and close, then tabs. Impacts, the
-// observations timeline and requests are live; field reports and unmet demand
-// arrive with P2.3 and P2.5.
+// observations timeline, field reports and requests are live; unmet demand
+// arrives with P2.5.
 
 /** One impact's status: a Select for writers (PATCH /api/impacts/[id]), a badge otherwise. */
 function ImpactStatusCell({ impact, editable, onChanged }: { impact: ImpactRow; editable: boolean; onChanged: () => void }) {
@@ -161,6 +163,31 @@ function EmergencyRequests({ emergencyId, canEdit }: { emergencyId: number; canE
       onRowClick={(r) => router.push(`/requests/${r.request_id}`)}
       emptyMessage={canEdit ? "No requests for this emergency yet." : "You have no requests for this emergency."}
     />
+  );
+}
+
+/** The Field reports tab: every report on this emergency, newest first. */
+function EmergencyReports({ emergencyId }: { emergencyId: number }) {
+  const router = useRouter();
+  const list = useApi<ReportList>(`/api/reports?emergency=${emergencyId}`);
+
+  if (list.error && !list.data) return <InlineError error={list.error} onRetry={() => void list.mutate()} />;
+  if (!list.data) return <Skeleton className="h-48 w-full" />;
+  return (
+    <>
+      <DataTable
+        columns={emergencyReportColumns}
+        data={list.data.reports}
+        getRowId={(r) => String(r.observation_id)}
+        onRowClick={(r) => router.push(`/reports/${r.observation_id}`)}
+        emptyMessage="No field reports for this emergency yet."
+      />
+      {list.data.capped && (
+        <p className="mt-2 text-muted-foreground">
+          Showing the latest {list.data.reports.length} of {list.data.total} reports.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -345,11 +372,7 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
         </TabsContent>
 
         <TabsContent value="reports">
-          <Placeholder task="P2.3">
-            <p>
-              {counts.reports} field report{counts.reports === 1 ? "" : "s"} filed for this emergency so far.
-            </p>
-          </Placeholder>
+          <EmergencyReports emergencyId={emergency.emergency_id} />
         </TabsContent>
 
         <TabsContent value="requests">
