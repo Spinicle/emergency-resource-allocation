@@ -63,10 +63,13 @@ const NO_TREND = "NOT_RECORDED"; // Radix Select items can't have an empty value
 /** A form box's text as a number. Number("") is 0, so blank becomes NaN and fails with a clear message. */
 export const toNumber = (text: string) => (text.trim() === "" ? Number.NaN : Number(text));
 
-/** A free value: a number if it reads as one, otherwise the text. */
+const PLAIN_DECIMAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/** A free value: a number only if it's a plain decimal, so "007", "0x1F" and "Infinity" stay as typed. */
 function freeValue(text: string): number | string {
   const trimmed = text.trim();
-  return Number.isNaN(Number(trimmed)) ? trimmed : Number(trimmed);
+  const number = Number(trimmed);
+  return PLAIN_DECIMAL.test(trimmed) && Number.isFinite(number) ? number : trimmed;
 }
 
 /** The details object for the request body, and any problems only the form can see (the API allows any key). */
