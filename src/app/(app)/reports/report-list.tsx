@@ -22,7 +22,7 @@ import type { EmergencyDetail, EmergencyRow } from "@/lib/emergency-types";
 import { EMERGENCY_TYPES } from "@/lib/enums";
 import type { ReportList as ReportListData } from "@/lib/report-types";
 import { MAX_SEARCH_LENGTH } from "@/lib/validators/fields";
-import { DEFAULT_NEAR_KM, MAX_NEAR_KM, MIN_NEAR_KM } from "@/lib/validators/reports";
+import { DEFAULT_NEAR_KM, isValidNearKm, MAX_NEAR_KM, MIN_NEAR_KM } from "@/lib/validators/reports";
 import { nearReportColumns, reportColumns } from "./report-columns";
 
 // /reports: filters, text search and near search run in MongoDB through the
@@ -43,35 +43,54 @@ export function ReportList() {
   const impact = params.get("impact") ?? "";
   const showMap = params.get("view") === "map";
 
-  const [search, setSearch] = useState(params.get("q") ?? "");
+  const urlQ = params.get("q") ?? "";
+  const urlKm = params.get("km") ?? String(DEFAULT_NEAR_KM);
+  const [search, setSearch] = useState(urlQ);
   const q = useDebouncedValue(search.trim());
-  const [kmText, setKmText] = useState(params.get("km") ?? String(DEFAULT_NEAR_KM));
+  // A km the API would refuse would leave nothing to show on first load, so it starts from the default.
+  const [kmText, setKmText] = useState(isValidNearKm(urlKm) ? urlKm : String(DEFAULT_NEAR_KM));
   const km = useDebouncedValue(kmText.trim());
-  const kmNumber = km === "" ? Number.NaN : Number(km);
-  const kmValid = kmNumber >= MIN_NEAR_KM && kmNumber <= MAX_NEAR_KM;
+  const kmValid = isValidNearKm(km);
 
-  /** Rewrites the given query-string values; undefined or "" removes one. */
+  // A link can change the URL while this page stays mounted (the sidebar's
+  // /reports clears the search). Our own writes always match the settled
+  // values, so only someone else's change resets the boxes.
+  const [seenUrl, setSeenUrl] = useState({ q: urlQ, km: urlKm });
+  if (urlQ !== seenUrl.q || urlKm !== seenUrl.km) {
+    setSeenUrl({ q: urlQ, km: urlKm });
+    if (urlQ !== q) setSearch(urlQ);
+    if (urlKm !== km && isValidNearKm(urlKm)) setKmText(urlKm);
+  }
+
+  /**
+   * Rewrites the given query-string values; undefined or "" removes one.
+   * replaceState and window.location, not router.replace and the hook's params:
+   * a change lands at once, so two close together can't overwrite each other.
+   * Next keeps useSearchParams in sync with it, and nothing on the server reads these.
+   */
   const setParams = useCallback(
     (changes: Record<string, string | undefined>) => {
-      const next = new URLSearchParams(params);
+      const next = new URLSearchParams(window.location.search);
       for (const [key, value] of Object.entries(changes)) {
         if (value) next.set(key, value);
         else next.delete(key);
       }
       const text = next.toString();
-      router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false });
+      window.history.replaceState(null, "", text ? `${pathname}?${text}` : pathname);
     },
-    [params, pathname, router],
+    [pathname],
   );
 
-  // The search boxes hold what's being typed; the URL follows once it settles.
+  // The search boxes hold what's being typed; the URL follows once it settles
+  // (and never takes a km the API would refuse).
   useEffect(() => {
-    const urlQ = mode === "text" ? q : "";
-    const urlKm = mode === "near" && kmValid && km !== String(DEFAULT_NEAR_KM) ? km : "";
-    if (urlQ !== (params.get("q") ?? "") || urlKm !== (params.get("km") ?? "")) {
-      setParams({ q: urlQ, km: urlKm });
+    if (search.trim() !== q || kmText.trim() !== km || !kmValid) return;
+    const wantQ = mode === "text" ? q : "";
+    const wantKm = mode === "near" && km !== String(DEFAULT_NEAR_KM) ? km : "";
+    if (wantQ !== (params.get("q") ?? "") || wantKm !== (params.get("km") ?? "")) {
+      setParams({ q: wantQ, km: wantKm });
     }
-  }, [mode, q, km, kmValid, params, setParams]);
+  }, [mode, search, q, kmText, km, kmValid, params, setParams]);
 
   const emergencies = useApi<EmergencyRow[]>("/api/emergencies");
   // Near mode picks from the chosen emergency's impacts; no API lists every impact.

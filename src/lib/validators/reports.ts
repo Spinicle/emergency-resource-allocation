@@ -33,6 +33,11 @@ const kmParam = z
   .transform(Number)
   .pipe(z.number().min(MIN_NEAR_KM, KM_MESSAGE).max(MAX_NEAR_KM, KM_MESSAGE));
 
+/** The API's own km rule, for the km box: "1e1" and ".5" are numbers but the API refuses them. */
+export function isValidNearKm(text: string): boolean {
+  return kmParam.safeParse(text).success;
+}
+
 /**
  * GET /api/reports?emergency=&type=&q=&near=lat,lng&km=
  * Blank values count as not sent. km is checked whenever it's sent but only
