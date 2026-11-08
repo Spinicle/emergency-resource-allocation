@@ -53,8 +53,20 @@ export function NewRequestForm() {
   // A closed emergency refuses new requests, so it isn't offered.
   const openEmergencies = emergencies.data?.filter((e) => e.status !== "CLOSED") ?? [];
 
-  function updateItem(key: number, change: Partial<ItemRow>) {
+  /** Drops one field's message once its value changes: it described the old value. */
+  function clearField(name: string) {
+    setFields((current) => {
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+  }
+
+  function updateItem(index: number, key: number, change: Partial<ItemRow>) {
     setItems((rows) => rows.map((row) => (row.key === key ? { ...row, ...change } : row)));
+    for (const name of Object.keys(change)) {
+      clearField(`items.${index}.${name === "quantity" ? "quantity_requested" : name}`);
+    }
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -128,6 +140,7 @@ export function NewRequestForm() {
                 onValueChange={(value) => {
                   setEmergencyId(value);
                   setImpactId(""); // the chosen location belonged to the previous emergency
+                  clearField("impact_id");
                 }}
               >
                 <SelectTrigger id="emergency" className="w-full">
@@ -143,7 +156,14 @@ export function NewRequestForm() {
               </Select>
             </FormField>
             <FormField htmlFor="impact" label="Impacted location" error={fields.impact_id}>
-              <Select value={impactId} onValueChange={setImpactId} disabled={!emergency.data}>
+              <Select
+                value={impactId}
+                onValueChange={(value) => {
+                  setImpactId(value);
+                  clearField("impact_id");
+                }}
+                disabled={!emergency.data}
+              >
                 <SelectTrigger id="impact" aria-invalid={!!fields.impact_id} className="w-full">
                   <SelectValue placeholder={emergencyId ? "Choose a location" : "Choose an emergency first"} />
                 </SelectTrigger>
@@ -163,7 +183,10 @@ export function NewRequestForm() {
               id="required_by"
               type="datetime-local"
               value={requiredBy}
-              onChange={(e) => setRequiredBy(e.target.value)}
+              onChange={(e) => {
+                setRequiredBy(e.target.value);
+                clearField("required_by");
+              }}
               aria-invalid={!!fields.required_by}
               className="sm:w-64"
             />
@@ -172,7 +195,10 @@ export function NewRequestForm() {
             <Textarea
               id="description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                clearField("description");
+              }}
               aria-invalid={!!fields.description}
             />
           </FormField>
@@ -195,7 +221,7 @@ export function NewRequestForm() {
                 className="grid items-start gap-2 border-b pb-3 last:border-b-0 sm:grid-cols-[1fr_8rem_8rem_auto]"
               >
                 <FormField htmlFor={`resource-${row.key}`} label="Resource" error={resourceError}>
-                  <Select value={row.resource_id} onValueChange={(value) => updateItem(row.key, { resource_id: value })}>
+                  <Select value={row.resource_id} onValueChange={(value) => updateItem(index, row.key, { resource_id: value })}>
                     <SelectTrigger id={`resource-${row.key}`} aria-invalid={!!resourceError} className="w-full">
                       <SelectValue placeholder="Choose a resource" />
                     </SelectTrigger>
@@ -219,14 +245,14 @@ export function NewRequestForm() {
                     min="0"
                     step="any"
                     value={row.quantity}
-                    onChange={(e) => updateItem(row.key, { quantity: e.target.value })}
+                    onChange={(e) => updateItem(index, row.key, { quantity: e.target.value })}
                     aria-invalid={!!quantityError}
                   />
                 </FormField>
                 <FormField htmlFor={`urgency-${row.key}`} label="Urgency" error={fields[`items.${index}.urgency`]}>
                   <Select
                     value={row.urgency}
-                    onValueChange={(value) => updateItem(row.key, { urgency: value as Urgency })}
+                    onValueChange={(value) => updateItem(index, row.key, { urgency: value as Urgency })}
                   >
                     <SelectTrigger id={`urgency-${row.key}`} className="w-full">
                       <SelectValue />
