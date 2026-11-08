@@ -1,5 +1,5 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { fieldError, scopeParams, scopeSql } from "@/lib/emergencies";
+import { fieldError, scopeParams } from "@/lib/emergencies";
 import type { EmergencyStatus, ImpactStatus } from "@/lib/enums";
 import { handle, HttpError, ok, parseJson, parseQuery } from "@/lib/http";
 import { query, withTransaction } from "@/lib/mysql";
@@ -28,57 +28,52 @@ export const GET = handle(async (req) => {
   const session = await requireRole("ADMIN", "COORDINATOR", "FIELD_OFFICER");
   const { emergency, status, urgency, q } = parseQuery(req, requestListQuery);
 
-  // WHERE is built only from the constant fragments below; every user value
-  // goes through a `?` placeholder.
-  const where = [scopeSql("r")];
-  const params: unknown[] = scopeParams(session);
-  if (emergency) {
-    where.push("ei.emergency_id = ?");
-    params.push(emergency);
-  }
-  if (status) {
-    where.push("r.status = ?");
-    params.push(status);
-  }
-  if (urgency) {
-    // "Has an item of this urgency". EXISTS rather than a JOIN, so a request
-    // with two matching items still shows once.
-    where.push("EXISTS (SELECT 1 FROM request_item f WHERE f.request_id = r.request_id AND f.urgency = ?)");
-    params.push(urgency);
-  }
-  if (q) {
-    // Nothing searchable left, as with T17's `' OR 1=1 --`: nothing can match,
-    // so no query runs (lib/search.ts).
-    const terms = toBooleanQuery(q);
-    if (!terms) return ok([]);
-    where.push("MATCH(r.description) AGAINST (? IN BOOLEAN MODE)");
-    params.push(terms);
-  }
+  // "" when there's no search. null when q held nothing searchable, as with
+  // T17's `' OR 1=1 --`: nothing can match, so no query runs (lib/search.ts).
+  const terms = q ? toBooleanQuery(q) : "";
+  if (terms === null) return ok([]);
 
-  // The derived table reduces the items to one row per request first, so
-  // joining it can't multiply requests. FIELD() ranks urgency by severity (a
+  const emergencyFilter = emergency ?? null;
+  const statusFilter = status ?? null;
+  const urgencyFilter = urgency ?? null;
+
+  // One fixed statement: each optional filter is "(not set OR matches)", so no
+  // SQL is assembled at runtime. The values are inlined as literals before
+  // MySQL sees them, so the optimizer drops a filter that isn't set.
+  //
+  // The two subqueries run per request, so the work follows the rows returned
+  // and joins can't multiply requests. FIELD() ranks urgency by severity (a
   // plain MAX would compare the words alphabetically, and LOW would beat HIGH);
-  // ELT() turns the highest rank back into its word.
+  // ELT() turns the highest rank back into its word. The urgency filter is
+  // EXISTS rather than a JOIN, so a request with two matching items shows once.
   const rows = await query<RequestRow>(
     `SELECT r.request_id, r.status, r.requested_at, r.required_by, r.description, r.impact_id,
             l.grid_id, e.emergency_id, e.name AS emergency_name, u.name AS requested_by,
-            COALESCE(i.item_count, 0) AS item_count,
-            ELT(i.top_rank, 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL') AS top_urgency
+            (SELECT COUNT(*) FROM request_item i WHERE i.request_id = r.request_id) AS item_count,
+            (SELECT ELT(MAX(FIELD(i.urgency, 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')), 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')
+               FROM request_item i WHERE i.request_id = r.request_id) AS top_urgency
        FROM resource_request r
        JOIN emergency_impact ei ON ei.impact_id   = r.impact_id
        JOIN emergency e         ON e.emergency_id = ei.emergency_id
        JOIN location l          ON l.location_id  = ei.location_id
        JOIN \`user\` u          ON u.user_id      = r.user_id
-       LEFT JOIN (
-         SELECT request_id,
-                COUNT(*) AS item_count,
-                MAX(FIELD(urgency, 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')) AS top_rank
-           FROM request_item
-          GROUP BY request_id
-       ) i ON i.request_id = r.request_id
-      WHERE ${where.join(" AND ")}
+      WHERE (? <> 'FIELD_OFFICER' OR r.user_id = ?)
+        AND (? IS NULL OR ei.emergency_id = ?)
+        AND (? IS NULL OR r.status = ?)
+        AND (? IS NULL OR EXISTS (SELECT 1 FROM request_item f WHERE f.request_id = r.request_id AND f.urgency = ?))
+        AND (? = '' OR MATCH(r.description) AGAINST (? IN BOOLEAN MODE))
       ORDER BY r.requested_at DESC, r.request_id DESC`,
-    params,
+    [
+      ...scopeParams(session),
+      emergencyFilter,
+      emergencyFilter,
+      statusFilter,
+      statusFilter,
+      urgencyFilter,
+      urgencyFilter,
+      terms,
+      terms,
+    ],
   );
   return ok(rows);
 });
