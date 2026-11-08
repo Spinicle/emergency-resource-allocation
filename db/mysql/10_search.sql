@@ -1,5 +1,5 @@
 -- 10_search.sql
--- Part 2 full-text indexes (docs/HANDOFF.md P2.1; P2.2 adds ftx_request_desc here).
+-- Part 2 full-text indexes (docs/HANDOFF.md P2.1, P2.2).
 -- db:reset runs this after Part 1's files because it runs every NN_*.sql in
 -- number order.
 --
@@ -9,5 +9,8 @@
 --
 -- MATCH must name exactly the columns of one index, in this order:
 --   MATCH(name, description)  uses ftx_emergency_text
+--   MATCH(description)        uses ftx_request_desc
 
 CREATE FULLTEXT INDEX ftx_emergency_text ON emergency(name, description);
+
+CREATE FULLTEXT INDEX ftx_request_desc ON resource_request(description);
