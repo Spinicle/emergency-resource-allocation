@@ -1,15 +1,51 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
+import { type DivIcon, divIcon } from "leaflet";
 import { useEffect } from "react";
-import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import type { ErasMapProps, MapPoint } from "./map-types";
 
 // The Leaflet map itself. Leaflet needs `window`, so only ./index.tsx may import
-// this, through next/dynamic with ssr: false. CircleMarker rather than Marker:
-// Leaflet's default icon images break under bundlers.
+// this, through next/dynamic with ssr: false. CircleMarker rather than an image
+// Marker: Leaflet's default icon images break under bundlers. Squares are Markers
+// with a divIcon, which uses no images.
 
 const KARNATAKA = { lat: 12.9, lng: 76.8 };
+
+const SQUARE_SIZE = 14;
+const squareIcons = new Map<string, DivIcon>();
+
+/**
+ * One icon per colour, made once, so react-leaflet doesn't reset it on every
+ * render. html is a string because Leaflet appends an element as it is, and
+ * markers sharing this icon would take it from each other; setting style on a
+ * real element leaves the escaping to the browser. className replaces the
+ * default leaflet-div-icon, which would draw a white box behind the square.
+ */
+function squareIcon(color: string): DivIcon {
+  let icon = squareIcons.get(color);
+  if (!icon) {
+    const square = document.createElement("span");
+    Object.assign(square.style, {
+      display: "block",
+      boxSizing: "border-box",
+      width: "100%",
+      height: "100%",
+      background: color,
+      border: "1px solid #fff",
+      borderRadius: "2px",
+    });
+    icon = divIcon({
+      className: "eras-map-square",
+      html: square.outerHTML,
+      iconSize: [SQUARE_SIZE, SQUARE_SIZE],
+      iconAnchor: [SQUARE_SIZE / 2, SQUARE_SIZE / 2],
+    });
+    squareIcons.set(color, icon);
+  }
+  return icon;
+}
 
 /** Zooms to the points whenever the set of points changes. */
 function FitToPoints({ points }: { points: readonly MapPoint[] }) {
@@ -48,17 +84,28 @@ export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoint
       />
       {fitPoints && <FitToPoints points={points} />}
       {onMapClick && <ClickHandler onMapClick={onMapClick} />}
-      {points.map((p) => (
-        <CircleMarker
-          key={p.id}
-          center={[p.lat, p.lng]}
-          radius={p.radius ?? 7}
-          pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }}
-          eventHandlers={p.onClick ? { click: p.onClick } : undefined}
-        >
-          <Tooltip>{p.label}</Tooltip>
-        </CircleMarker>
-      ))}
+      {points.map((p) =>
+        p.shape === "square" ? (
+          <Marker
+            key={p.id}
+            position={[p.lat, p.lng]}
+            icon={squareIcon(p.color)}
+            eventHandlers={p.onClick ? { click: p.onClick } : undefined}
+          >
+            <Tooltip>{p.label}</Tooltip>
+          </Marker>
+        ) : (
+          <CircleMarker
+            key={p.id}
+            center={[p.lat, p.lng]}
+            radius={p.radius ?? 7}
+            pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }}
+            eventHandlers={p.onClick ? { click: p.onClick } : undefined}
+          >
+            <Tooltip>{p.label}</Tooltip>
+          </CircleMarker>
+        ),
+      )}
     </MapContainer>
   );
 }
