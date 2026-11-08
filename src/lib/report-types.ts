@@ -42,7 +42,10 @@ export type ReportList = {
   capped: boolean;
 };
 
-export type ReportNeed = { item: string; est_qty?: number; unit?: string };
+/** POST /api/observations -> 201 */
+export type ReportFiled = { observation_id: number; reported_at: string };
+
+export type ReportNeed ={ item: string; est_qty?: number; unit?: string };
 export type ReportInfrastructure = { kind: string; name?: string; status?: string };
 export type ReportCasualties = { injured?: number; missing?: number; deceased?: number };
 
