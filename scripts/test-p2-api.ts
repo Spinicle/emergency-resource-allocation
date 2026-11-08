@@ -473,6 +473,16 @@ async function testRequests(my: Connection, db: Db): Promise<void> {
     onClosed.status === 409 && onClosed.error?.code === "RULE" && /closed/i.test(onClosed.error?.message ?? ""), onClosed);
   check("the CLOSED refusal changed nothing", (await snapshot(closedRequest)) === wasClosed);
 
+  // The app can't make an empty request, so this one is written directly.
+  await my.query(
+    "INSERT INTO resource_request (impact_id, user_id, description) VALUES (?, (SELECT user_id FROM `user` WHERE email = 'field1@eras.test'), ?)",
+    [bellandur, description("no items")],
+  );
+  const emptyId = await lookup(my, "empty fixture", "SELECT LAST_INSERT_ID()");
+  const onEmpty = await coord("POST", `/api/requests/${emptyId}/cancel`);
+  check("a request with no items -> 409 RULE, still OPEN",
+    onEmpty.status === 409 && onEmpty.error?.code === "RULE" && (await snapshot(emptyId)) === "OPEN:null", onEmpty);
+
   // Successful cancels: the owner, a Coordinator and an Admin.
   for (const [who, canceller] of [["the owner", field1], ["a Coordinator", coord], ["an Admin", admin]] as const) {
     const made = await field1("POST", "/api/requests", {

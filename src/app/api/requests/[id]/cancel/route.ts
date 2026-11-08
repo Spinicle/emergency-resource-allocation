@@ -66,6 +66,12 @@ export const POST = handle<RouteContext<"/api/requests/[id]/cancel">>(async (_re
       });
     }
 
+    // The app always writes at least one item, but a console-made request may
+    // have none: the UPDATE would touch nothing and the request would stay OPEN.
+    if (items.length === 0) {
+      throw new HttpError(409, "This request has no items to cancel", { code: "RULE" });
+    }
+
     await conn.query("UPDATE request_item SET status = 'CANCELLED' WHERE request_id = ?", [id]);
   });
 

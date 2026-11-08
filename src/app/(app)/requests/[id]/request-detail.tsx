@@ -205,7 +205,8 @@ export function RequestDetailView({ id, canAllocate }: { id: number; canAllocate
   const { request, items, allocations, timeline } = data;
   // Mirrors the API so the button appears only when it can work. The API still
   // decides: someone may allocate after this page loaded.
-  const canCancel = request.status !== "CANCELLED" && !closed && items.every((i) => i.quantity_allocated === 0);
+  const canCancel =
+    request.status !== "CANCELLED" && !closed && items.length > 0 && items.every((i) => i.quantity_allocated === 0);
 
   return (
     <div className="flex flex-col gap-4">
