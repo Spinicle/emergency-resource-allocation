@@ -121,10 +121,11 @@ function Report({ report }: { report: ReportDetail }) {
             {report.needs_observed.map((need, i) => (
               <li key={i}>
                 <span className="font-medium">{need.item}</span>
-                {need.est_qty !== undefined && (
+                {(need.est_qty !== undefined || need.unit) && (
                   <span className="text-muted-foreground">
                     {" "}
-                    · about {formatQty(need.est_qty)} {need.unit}
+                    · {need.est_qty !== undefined && `about ${formatQty(need.est_qty)} `}
+                    {need.unit}
                   </span>
                 )}
               </li>
@@ -137,7 +138,7 @@ function Report({ report }: { report: ReportDetail }) {
           <ul className="flex flex-col gap-1">
             {report.infrastructure.map((part, i) => (
               <li key={i}>
-                <span className="font-medium">{humanize(part.kind)}</span>
+                <span className="font-medium">{part.kind}</span>
                 {part.name && <span> · {part.name}</span>}
                 {part.status && <span className="text-muted-foreground"> · {part.status}</span>}
               </li>
@@ -153,8 +154,8 @@ function Report({ report }: { report: ReportDetail }) {
       {report.tags.length > 0 && (
         <Section title="Tags">
           <div className="flex flex-wrap gap-1">
-            {report.tags.map((tag) => (
-              <Badge key={tag} variant="outline">
+            {report.tags.map((tag, i) => (
+              <Badge key={i} variant="outline">
                 {tag}
               </Badge>
             ))}
