@@ -427,6 +427,12 @@ async function seedFieldReports(db: Db, mysql: Queryable): Promise<void> {
 
   const byGrid = new Map<string, ObservationRow[]>();
   for (const row of rows) byGrid.set(row.grid_id, [...(byGrid.get(row.grid_id) ?? []), row]);
+  // A timeline is one impact's. uq_emergency_location allows a grid in two emergencies; 07_seed has none.
+  for (const [grid, seeded] of byGrid) {
+    if (new Set(seeded.map((row) => row.impact_id)).size > 1) {
+      throw new Error(`seed_field_reports: ${grid} has impacts in more than one emergency (did 07_seed change?)`);
+    }
+  }
 
   /** The open window before each impact's second-latest seeded observation. */
   const windows = NEW_REPORT_IMPACTS.map((grid) => {
