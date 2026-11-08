@@ -1,6 +1,6 @@
 import "server-only";
 import { FIELD_REPORTS } from "@db/mongo/field_reports";
-import type { Collection } from "mongodb";
+import type { Collection, Filter } from "mongodb";
 import type { EmergencyType } from "@/lib/enums";
 import { HttpError } from "@/lib/http";
 import { dateToIst } from "@/lib/ist";
@@ -61,13 +61,15 @@ const LIST_FIELDS = {
 type Found = { docs: ListDoc[]; total: number };
 type Filters = Partial<Pick<ReportDoc, "emergency_id" | "emergency_type">>;
 
+/** How many match. A page short of the cap already is the whole answer, so only a full page needs counting. */
+function totalFor(reports: Collection<ReportDoc>, match: Filter<ReportDoc>, found: number): Promise<number> {
+  return found < REPORT_LIST_CAP ? Promise.resolve(found) : reports.countDocuments(match);
+}
+
 /** Newest first. The emergency filter uses { emergency_id: 1, reported_at: -1 }. */
 async function findPlain(reports: Collection<ReportDoc>, filters: Filters): Promise<Found> {
-  const [docs, total] = await Promise.all([
-    reports.find(filters, { projection: LIST_FIELDS }).sort({ reported_at: -1 }).limit(REPORT_LIST_CAP).toArray(),
-    reports.countDocuments(filters),
-  ]);
-  return { docs: docs as unknown as ListDoc[], total };
+  const docs = await reports.find(filters, { projection: LIST_FIELDS }).sort({ reported_at: -1 }).limit(REPORT_LIST_CAP).toArray();
+  return { docs: docs as unknown as ListDoc[], total: await totalFor(reports, filters, docs.length) };
 }
 
 /** Nearest first. $geoNear must come first; the filters go in its query. A $facet gives the total in one pass. */
@@ -100,18 +102,15 @@ async function findNear(
 /** Best match first, newest among equals. q reaches $search only as a plain string. */
 async function findText(reports: Collection<ReportDoc>, filters: Filters, q: string): Promise<Found> {
   const match = { $text: { $search: q }, ...filters };
-  const [docs, total] = await Promise.all([
-    reports
-      .aggregate<ListDoc>([
-        { $match: match },
-        { $sort: { score: { $meta: "textScore" }, reported_at: -1 } },
-        { $limit: REPORT_LIST_CAP },
-        { $project: LIST_FIELDS },
-      ])
-      .toArray(),
-    reports.countDocuments(match),
-  ]);
-  return { docs, total };
+  const docs = await reports
+    .aggregate<ListDoc>([
+      { $match: match },
+      { $sort: { score: { $meta: "textScore" }, reported_at: -1 } },
+      { $limit: REPORT_LIST_CAP },
+      { $project: LIST_FIELDS },
+    ])
+    .toArray();
+  return { docs, total: await totalFor(reports, match, docs.length) };
 }
 
 /** The MySQL side of a report. */
