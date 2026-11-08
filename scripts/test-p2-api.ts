@@ -3,14 +3,15 @@
  *
  * End-to-end checks of the Part 2 API against the running app: real HTTP, real
  * cookies, real MySQL and MongoDB. P2.1: each "Done when", RBAC, filters,
- * full-text search and T17, the CLOSED and type rules.
+ * full-text search and T17, the CLOSED and type rules. P2.2: the /allocate rank
+ * of a new CRITICAL item, rollback, create and cancel rules, roles, filters.
  *
- *   1. npm run db:reset
+ *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
  *   3. npm run api:test:p2    (API_BASE_URL if the app isn't on http://localhost:3000)
  *
- * Fixtures use zz_p21_ names and are removed at the end (also after a failure,
- * and left-overs from an aborted run at the start), so db:test stays green.
+ * Fixtures use zz_p21_ / zz_p22_ names and are removed at the end (also after a
+ * failure, and left-overs from an aborted run at the start), so db:test stays green.
  * Exits 1 if any check fails.
  */
 import { type Db, MongoClient } from "mongodb";
@@ -21,6 +22,7 @@ import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./l
 const BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
 const PASSWORD = "Eras@2026"; // the seeded local-dev password (HANDOFF 4.8)
 const ZZ = "zz_p21_"; // fixture prefix: emergency names and grid ids
+const ZZ_REQ = "zz_p22_"; // P2.2's prefix: those, and request descriptions
 const RUN = Date.now().toString(36); // unique per run, for search terms and grid ids
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -239,26 +241,295 @@ async function testEmergencies(my: Connection): Promise<void> {
   }
 }
 
-/** Removes every zz_p21_ emergency with its impacts, observations, reports and entries, and zz_p21_ locations. */
-async function cleanup(my: Connection, db: Db): Promise<void> {
-  const [emergencies] = await my.query<RowDataPacket[]>(
-    "SELECT emergency_id FROM emergency WHERE name LIKE ?",
-    [`${ZZ.replaceAll("_", "\\_")}%`],
+const HAS_ALLOCATIONS = "This request has reserved, dispatched or delivered allocations, so it can't be cancelled.";
+const FAR_ID = 2147483646; // a valid id that no row will have
+
+/** resource_request and request_item row counts, and activity entries: what a rollback must leave alone. */
+async function rowCounts(my: Connection, db: Db): Promise<string> {
+  const [[row]] = await my.query<RowDataPacket[]>(
+    "SELECT (SELECT COUNT(*) FROM resource_request) AS requests, (SELECT COUNT(*) FROM request_item) AS items",
   );
-  for (const { emergency_id } of emergencies) {
-    // Test fixtures only: activity_log is otherwise never deleted from.
-    await db.collection("activity_log").deleteMany({ "refs.emergency_id": emergency_id });
-    await db.collection("field_reports").deleteMany({ emergency_id });
-    await my.query(
-      `DELETE o FROM impact_observation o
-         JOIN emergency_impact ei ON ei.impact_id = o.impact_id
-        WHERE ei.emergency_id = ?`,
-      [emergency_id],
-    );
-    await my.query("DELETE FROM emergency_impact WHERE emergency_id = ?", [emergency_id]);
-    await my.query("DELETE FROM emergency WHERE emergency_id = ?", [emergency_id]);
+  return `${row.requests}/${row.items}/${await db.collection("activity_log").countDocuments()}`;
+}
+
+/** One column of the first row, or a failed run if the seed doesn't have it. */
+async function lookup(my: Connection, what: string, sql: string, params: unknown[] = []): Promise<number> {
+  const [rows] = await my.query<RowDataPacket[]>(sql, params);
+  if (rows.length === 0) throw new ScriptError(`the seed has no ${what}. Run npm run db:reset`);
+  return Object.values(rows[0])[0] as number;
+}
+
+const IMPACT_BY_GRID = `SELECT ei.impact_id FROM emergency_impact ei
+                          JOIN location l ON l.location_id = ei.location_id WHERE l.grid_id = ?`;
+
+async function testRequests(my: Connection, db: Db): Promise<void> {
+  console.log("\nP2.2 Requests");
+  const [coord, admin, field1, field2, manager] = await Promise.all(
+    ["coord@eras.test", "admin@eras.test", "field1@eras.test", "field2@eras.test", "cm.central@eras.test"].map(signIn),
+  );
+  const anonymous = client();
+
+  const [resources] = await my.query<RowDataPacket[]>("SELECT resource_id FROM resource ORDER BY name LIMIT 2");
+  const [r1, r2]: number[] = resources.map((r) => r.resource_id);
+  const bellandur = await lookup(my, "BLR-BELLANDUR impact", IMPACT_BY_GRID, ["BLR-BELLANDUR"]);
+  const item = (resource_id: number, urgency = "HIGH") => ({ resource_id, quantity_requested: 10, urgency });
+  const description = (what: string) => `${ZZ_REQ}${RUN} ${what}`;
+
+  // First, before anything else creates CRITICAL items that could push it down.
+  // Done when: a new CRITICAL request shows near the top of /allocate. It has
+  // waited 0 s (W = 0), on the seed's worst impact, due within 6 h (D = 1).
+  const [[{ soon }]] = await my.query<RowDataPacket[]>(
+    "SELECT DATE_FORMAT(NOW() + INTERVAL 3 HOUR, '%Y-%m-%dT%H:%i') AS soon",
+  );
+  const urgent = await field1("POST", "/api/requests", {
+    impact_id: bellandur,
+    required_by: soon,
+    description: description("rank check"),
+    items: [item(r1, "CRITICAL")],
+  });
+  check("a Field Officer creates a CRITICAL request -> 201", urgent.status === 201, urgent);
+  const urgentId: number = urgent.data?.request_id;
+  const queue = await coord("GET", "/api/allocations/queue");
+  const rank = (queue.data ?? []).findIndex((row: { request_id: number }) => row.request_id === urgentId) + 1;
+  console.log(
+    `        /allocate: new item scores ${queue.data?.[rank - 1]?.priority_score}, rank ${rank} of ${queue.data?.length}; ` +
+      `top score ${queue.data?.[0]?.priority_score}`,
+  );
+  check("the new CRITICAL item is near the top of the queue (rank <= 3)", rank >= 1 && rank <= 3, rank);
+
+  // Done when: a request whose second item is invalid leaves no rows behind.
+  // These two reach MySQL with the first item already inserted, so they prove
+  // the rollback; invalid urgency below stops at Zod and proves only that.
+  const before = await rowCounts(my, db);
+  const repeated = await field1("POST", "/api/requests", {
+    impact_id: bellandur,
+    description: description("repeat"),
+    items: [item(r1), item(r1)],
+  });
+  check("a repeated resource -> 409 DUPLICATE on the second item",
+    repeated.status === 409 && repeated.error?.code === "DUPLICATE" && !!repeated.error?.fields?.["items.1.resource_id"], repeated);
+  check("the repeated resource left no rows behind", (await rowCounts(my, db)) === before);
+  const unknown = await field1("POST", "/api/requests", {
+    impact_id: bellandur,
+    description: description("unknown"),
+    items: [item(r1), item(FAR_ID)],
+  });
+  check("an unknown resource_id -> 409 MISSING_REFERENCE",
+    unknown.status === 409 && unknown.error?.code === "MISSING_REFERENCE", unknown);
+  check("the unknown resource left no rows behind", (await rowCounts(my, db)) === before);
+  const badUrgency = await field1("POST", "/api/requests", {
+    impact_id: bellandur,
+    items: [item(r1), item(r2, "URGENT")],
+  });
+  check("an invalid urgency -> 400 on items.1.urgency",
+    badUrgency.status === 400 && !!badUrgency.error?.fields?.["items.1.urgency"], badUrgency);
+
+  // Create rules.
+  const closedImpact = await lookup(my, "MYS-NR-MOHALLA impact", IMPACT_BY_GRID, ["MYS-NR-MOHALLA"]);
+  const resolvedImpact = await lookup(my, "BLR-YELAHANKA impact", IMPACT_BY_GRID, ["BLR-YELAHANKA"]);
+  for (const [what, impact_id, pattern] of [
+    ["a CLOSED emergency", closedImpact, /closed/i],
+    ["a RESOLVED impact", resolvedImpact, /resolved/i],
+  ] as const) {
+    const r = await field1("POST", "/api/requests", { impact_id, items: [item(r1)] });
+    check(`${what} refuses a request -> 409 RULE`,
+      r.status === 409 && r.error?.code === "RULE" && pattern.test(r.error?.message ?? ""), r);
   }
-  await my.query("DELETE FROM location WHERE grid_id LIKE ?", [`${ZZ.replaceAll("_", "\\_")}%`]);
+  check("those refusals left no rows behind", (await rowCounts(my, db)) === before);
+  const past = await field1("POST", "/api/requests", { impact_id: bellandur, required_by: "2020-01-01T10:00", items: [item(r1)] });
+  check("a past required_by -> 400 on required_by", past.status === 400 && !!past.error?.fields?.required_by, past);
+  const noImpact = await field1("POST", "/api/requests", { impact_id: FAR_ID, items: [item(r1)] });
+  check("an unknown impact -> 404", noImpact.status === 404, noImpact);
+  const noItems = await field1("POST", "/api/requests", { impact_id: bellandur, items: [] });
+  check("no items -> 400 on items", noItems.status === 400 && !!noItems.error?.fields?.items, noItems);
+
+  const emergency = await coord("POST", "/api/emergencies", { name: `${ZZ_REQ}${RUN} storm`, type: "CYCLONE" });
+  const emergencyId: number = emergency.data?.emergency_id;
+  const impact = await coord("POST", `/api/emergencies/${emergencyId}/impacts`, {
+    grid_id: `${ZZ_REQ}${RUN}-1`,
+    latitude: 12.9,
+    longitude: 77.6,
+  });
+  const contain = await coord("PATCH", `/api/emergencies/${emergencyId}`, { status: "CONTAINED" });
+  check("fixture emergency is CONTAINED", contain.status === 200 && impact.status === 201, [contain, impact]);
+  const searchWord = `medicine${RUN}`;
+  const contained = await field1("POST", "/api/requests", {
+    impact_id: impact.data?.impact_id,
+    description: description(`${searchWord} for the camp`),
+    items: [item(r1, "CRITICAL"), item(r2, "LOW")],
+  });
+  check("a CONTAINED emergency takes a request -> 201", contained.status === 201, contained);
+  const ownId: number = contained.data?.request_id;
+
+  // A new request starts as the triggers expect, with its timeline.
+  const detail = await field1("GET", `/api/requests/${ownId}`);
+  check("the request starts OPEN", detail.data?.request?.status === "OPEN", detail.data?.request);
+  check("items start PENDING with everything remaining",
+    detail.data?.items?.length === 2 && detail.data.items.every(
+      (i: { status: string; quantity_remaining: number; quantity_requested: number; quantity_allocated: number }) =>
+        i.status === "PENDING" && i.quantity_allocated === 0 && i.quantity_remaining === i.quantity_requested,
+    ), detail.data?.items);
+  const created = detail.data?.timeline?.find((e: { action: string }) => e.action === "REQUEST_CREATED");
+  check("the timeline shows REQUEST_CREATED, in IST wall-clock form",
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(created?.ts ?? "") && created?.actor_name, detail.data?.timeline);
+
+  // Roles and ids.
+  for (const [method, path, body] of [
+    ["GET", "/api/requests", undefined],
+    ["POST", "/api/requests", { impact_id: bellandur, items: [item(r1)] }],
+    ["GET", `/api/requests/${ownId}`, undefined],
+    ["POST", `/api/requests/${ownId}/cancel`, undefined],
+  ] as const) {
+    check(`signed out ${method} ${path} -> 401`, (await anonymous(method, path, body)).status === 401);
+    check(`Center Manager ${method} ${path} -> 403`, (await manager(method, path, body)).status === 403);
+  }
+  const adminCreate = await admin("POST", "/api/requests", { impact_id: bellandur, items: [item(r1)] });
+  check("Admin create -> 403", adminCreate.status === 403, adminCreate);
+  check("another Field Officer reading it -> 403", (await field2("GET", `/api/requests/${ownId}`)).status === 403);
+  check("another Field Officer cancelling it -> 403", (await field2("POST", `/api/requests/${ownId}/cancel`)).status === 403);
+  check("a Coordinator can read it", (await coord("GET", `/api/requests/${ownId}`)).status === 200);
+  check("an Admin can read it", (await admin("GET", `/api/requests/${ownId}`)).status === 200);
+  check("a missing id GET -> 404", (await coord("GET", `/api/requests/${FAR_ID}`)).status === 404);
+  check("a missing id cancel -> 404", (await coord("POST", `/api/requests/${FAR_ID}/cancel`)).status === 404);
+  check("a malformed id GET -> 400", (await coord("GET", "/api/requests/abc")).status === 400);
+  check("a malformed id cancel -> 400", (await coord("POST", "/api/requests/abc/cancel")).status === 400);
+
+  // Lists: scope, each filter, search.
+  const hasId = (r: Res, id: number) => (r.data ?? []).some((x: { request_id: number }) => x.request_id === id);
+  const count = (sql: string, params: unknown[] = []) => lookup(my, "count", sql, params);
+  const all = await coord("GET", "/api/requests");
+  check("a Coordinator lists every request",
+    all.data?.length === (await count("SELECT COUNT(*) FROM resource_request")), all.data?.length);
+  const mine = await field1("GET", "/api/requests");
+  check("a Field Officer lists only their own",
+    mine.data?.length === (await count(
+      "SELECT COUNT(*) FROM resource_request r JOIN `user` u ON u.user_id = r.user_id WHERE u.email = 'field1@eras.test'",
+    )) && hasId(mine, ownId), mine.data?.length);
+  check("another Field Officer doesn't see it", !hasId(await field2("GET", "/api/requests"), ownId));
+  const blank = await coord("GET", "/api/requests?emergency=&status=&urgency=&q=");
+  check("untouched filters -> every request", blank.status === 200 && blank.data?.length === all.data?.length, blank.status);
+  const byStatus = await coord("GET", "/api/requests?status=OPEN");
+  check("status filter", byStatus.data?.length > 0 && byStatus.data.every((r: { status: string }) => r.status === "OPEN"));
+  const byEmergency = await coord("GET", `/api/requests?emergency=${emergencyId}`);
+  check("emergency filter", byEmergency.data?.length === 1 && hasId(byEmergency, ownId), byEmergency.data);
+  const byUrgency = await coord("GET", "/api/requests?urgency=LOW");
+  check("urgency filter matches any item once",
+    byUrgency.data?.length === (await count("SELECT COUNT(DISTINCT request_id) FROM request_item WHERE urgency = 'LOW'")) &&
+      hasId(byUrgency, ownId), byUrgency.data?.length);
+  check("the rollup shows the top urgency, not the alphabetical max",
+    byEmergency.data?.[0]?.top_urgency === "CRITICAL" && byEmergency.data?.[0]?.item_count === 2, byEmergency.data);
+  check("a bad status -> 400", (await coord("GET", "/api/requests?status=NOPE")).status === 400);
+  check("a bad emergency -> 400", (await coord("GET", "/api/requests?emergency=abc")).status === 400);
+
+  check("full-text search finds it", hasId(await coord("GET", `/api/requests?q=${searchWord}`), ownId));
+  check("its owner can search for it", hasId(await field1("GET", `/api/requests?q=${searchWord}`), ownId));
+  const otherSearch = await field2("GET", `/api/requests?q=${searchWord}`);
+  check("another Field Officer's search doesn't find it", otherSearch.status === 200 && otherSearch.data?.length === 0, otherSearch);
+  for (const text of HOSTILE_SEARCHES) {
+    const r = await coord("GET", `/api/requests?q=${encodeURIComponent(text)}`);
+    check(`T17 requests search ${JSON.stringify(text)} -> 200, no rows`, r.status === 200 && r.data?.length === 0, r);
+  }
+
+  // Cancel refusals, on seeded requests so nothing has to be built or undone.
+  const snapshot = async (id: number) => {
+    const [[row]] = await my.query<RowDataPacket[]>(
+      `SELECT r.status, (SELECT GROUP_CONCAT(i.status ORDER BY i.request_item_id) FROM request_item i
+                          WHERE i.request_id = r.request_id) AS items
+         FROM resource_request r WHERE r.request_id = ?`,
+      [id],
+    );
+    return `${row.status}:${row.items}`;
+  };
+  for (const status of ["RESERVED", "DISPATCHED", "DELIVERED"]) {
+    const id = await lookup(
+      my,
+      `open-emergency request with a ${status} allocation`,
+      `SELECT ri.request_id FROM allocation a
+         JOIN request_item ri     ON ri.request_item_id = a.request_item_id
+         JOIN resource_request r  ON r.request_id = ri.request_id
+         JOIN emergency_impact ei ON ei.impact_id = r.impact_id
+         JOIN emergency e         ON e.emergency_id = ei.emergency_id
+        WHERE a.status = ? AND e.status <> 'CLOSED' AND r.status <> 'CANCELLED'
+        LIMIT 1`,
+      [status],
+    );
+    const was = await snapshot(id);
+    const r = await coord("POST", `/api/requests/${id}/cancel`);
+    check(`a ${status} allocation blocks cancel -> 409 with the request-level message`,
+      r.status === 409 && r.error?.code === "RULE" && r.error?.message === HAS_ALLOCATIONS, r);
+    check(`the ${status} refusal changed nothing`, (await snapshot(id)) === was);
+  }
+  const closedRequest = await lookup(
+    my,
+    "open request on a CLOSED emergency",
+    `SELECT r.request_id FROM resource_request r
+       JOIN emergency_impact ei ON ei.impact_id = r.impact_id
+       JOIN emergency e         ON e.emergency_id = ei.emergency_id
+      WHERE e.status = 'CLOSED' AND r.status <> 'CANCELLED' LIMIT 1`,
+  );
+  const wasClosed = await snapshot(closedRequest);
+  const onClosed = await coord("POST", `/api/requests/${closedRequest}/cancel`);
+  check("a CLOSED emergency blocks cancel -> 409 RULE",
+    onClosed.status === 409 && onClosed.error?.code === "RULE" && /closed/i.test(onClosed.error?.message ?? ""), onClosed);
+  check("the CLOSED refusal changed nothing", (await snapshot(closedRequest)) === wasClosed);
+
+  // Successful cancels: the owner, a Coordinator and an Admin.
+  for (const [who, canceller] of [["the owner", field1], ["a Coordinator", coord], ["an Admin", admin]] as const) {
+    const made = await field1("POST", "/api/requests", {
+      impact_id: bellandur,
+      description: description(`cancel by ${who}`),
+      items: [item(r1), item(r2)],
+    });
+    const id: number = made.data?.request_id;
+    const cancelled = await canceller("POST", `/api/requests/${id}/cancel`);
+    check(`${who} cancels -> 200`, cancelled.status === 200 && cancelled.data?.status === "CANCELLED", cancelled);
+    check("items and request are CANCELLED (the trigger rolled it up)",
+      (await snapshot(id)) === "CANCELLED:CANCELLED,CANCELLED", await snapshot(id));
+    check("it's gone from v_priority_queue",
+      (await count("SELECT COUNT(*) FROM v_priority_queue WHERE request_id = ?", [id])) === 0);
+    const after = await canceller("GET", `/api/requests/${id}`);
+    check("the timeline shows REQUEST_CANCELLED",
+      after.data?.timeline?.some((e: { action: string }) => e.action === "REQUEST_CANCELLED"), after.data?.timeline);
+    const again = await canceller("POST", `/api/requests/${id}/cancel`);
+    check("cancelling again -> 409 RULE", again.status === 409 && again.error?.code === "RULE", again);
+  }
+}
+
+/** Removes zz_p22_ requests with their items and entries. Runs before the emergencies they hang off. */
+async function cleanupRequests(my: Connection, db: Db): Promise<void> {
+  const [rows] = await my.query<RowDataPacket[]>(
+    "SELECT request_id FROM resource_request WHERE description LIKE ?",
+    [`${ZZ_REQ.replaceAll("_", "\\_")}%`],
+  );
+  const ids = rows.map((r) => r.request_id as number);
+  if (ids.length === 0) return;
+  // Test fixtures only: activity_log is otherwise never deleted from.
+  await db.collection("activity_log").deleteMany({ "refs.request_id": { $in: ids } });
+  await my.query("DELETE FROM request_item WHERE request_id IN (?)", [ids]);
+  await my.query("DELETE FROM resource_request WHERE request_id IN (?)", [ids]);
+}
+
+/** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
+async function cleanup(my: Connection, db: Db): Promise<void> {
+  await cleanupRequests(my, db);
+  for (const prefix of [ZZ, ZZ_REQ]) {
+    const like = `${prefix.replaceAll("_", "\\_")}%`;
+    const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id FROM emergency WHERE name LIKE ?", [like]);
+    for (const { emergency_id } of emergencies) {
+      // Test fixtures only: activity_log is otherwise never deleted from.
+      await db.collection("activity_log").deleteMany({ "refs.emergency_id": emergency_id });
+      await db.collection("field_reports").deleteMany({ emergency_id });
+      await my.query(
+        `DELETE o FROM impact_observation o
+           JOIN emergency_impact ei ON ei.impact_id = o.impact_id
+          WHERE ei.emergency_id = ?`,
+        [emergency_id],
+      );
+      await my.query("DELETE FROM emergency_impact WHERE emergency_id = ?", [emergency_id]);
+      await my.query("DELETE FROM emergency WHERE emergency_id = ?", [emergency_id]);
+    }
+    await my.query("DELETE FROM location WHERE grid_id LIKE ?", [like]);
+  }
 }
 
 async function main(): Promise<void> {
@@ -275,6 +546,7 @@ async function main(): Promise<void> {
     await cleanup(my, db);
     try {
       await testEmergencies(my);
+      await testRequests(my, db);
     } finally {
       await cleanup(my, db);
     }
