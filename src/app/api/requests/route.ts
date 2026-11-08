@@ -15,6 +15,8 @@ import { createRequestSchema, requestListQuery } from "@/lib/validators/requests
 
 const DEADLINE_MESSAGE = "The deadline has to be in the future";
 
+const errnoOf = (err: unknown) => (err as { errno?: unknown } | null)?.errno;
+
 type Impact = RowDataPacket & {
   emergency_id: number;
   impact_status: ImpactStatus;
@@ -132,16 +134,15 @@ export const POST = handle(async (req) => {
     } catch (err) {
       // A lock wait above can carry requested_at past a deadline that was still
       // ahead when checked; chk_request_deadline is the final word.
-      const { errno, sqlMessage } = err as { errno?: unknown; sqlMessage?: unknown };
-      if (errno === 3819 && String(sqlMessage).includes("chk_request_deadline")) {
+      // The name decides: resource_request has another CHECK, on its status.
+      if (errnoOf(err) === 3819 && String((err as { sqlMessage?: unknown }).sqlMessage).includes("chk_request_deadline")) {
         throw fieldError("required_by", DEADLINE_MESSAGE);
       }
       throw err;
     }
 
     // One at a time on purpose: one connection runs one statement at a time,
-    // and the first failure must stop the rest and reach the rollback. An
-    // unknown resource_id is a foreign-key error, which handle() makes a 409.
+    // and the first failure must stop the rest and reach the rollback.
     for (const [index, item] of items.entries()) {
       try {
         await conn.query(
@@ -149,10 +150,18 @@ export const POST = handle(async (req) => {
           [requestId, item.resource_id, item.quantity_requested, item.urgency],
         );
       } catch (err) {
+        const field = `items.${index}.resource_id`;
+        const errno = errnoOf(err);
         // uq_request_resource is the only unique key this INSERT can hit.
-        if ((err as { errno?: unknown } | null)?.errno === 1062) {
+        if (errno === 1062) {
           const message = "Each resource can only appear once in a request";
-          throw new HttpError(409, message, { code: "DUPLICATE", fields: { [`items.${index}.resource_id`]: message } });
+          throw new HttpError(409, message, { code: "DUPLICATE", fields: { [field]: message } });
+        }
+        // The request was just inserted, so the missing parent can only be the
+        // resource. era_app gets 1216; 1452 is what an admin connection would get.
+        if (errno === 1216 || errno === 1452) {
+          const message = "That resource no longer exists";
+          throw new HttpError(409, message, { code: "MISSING_REFERENCE", fields: { [field]: message } });
         }
         throw err;
       }

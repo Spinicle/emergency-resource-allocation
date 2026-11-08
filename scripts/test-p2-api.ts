@@ -314,8 +314,8 @@ async function testRequests(my: Connection, db: Db): Promise<void> {
     description: description("unknown"),
     items: [item(r1), item(FAR_ID)],
   });
-  check("an unknown resource_id -> 409 MISSING_REFERENCE",
-    unknown.status === 409 && unknown.error?.code === "MISSING_REFERENCE", unknown);
+  check("an unknown resource_id -> 409 MISSING_REFERENCE on the second item",
+    unknown.status === 409 && unknown.error?.code === "MISSING_REFERENCE" && !!unknown.error?.fields?.["items.1.resource_id"], unknown);
   check("the unknown resource left no rows behind", (await rowCounts(my, db)) === before);
   const badUrgency = await field1("POST", "/api/requests", {
     impact_id: bellandur,
