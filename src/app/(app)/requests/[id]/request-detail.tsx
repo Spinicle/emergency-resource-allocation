@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
-import { humanize } from "@/app/(app)/emergencies/format";
+import { ActivityTimeline } from "@/components/activity-timeline";
 import { DataTable, dataTableColumns } from "@/components/data-table";
 import {
   AlertDialog,
@@ -27,7 +27,6 @@ import type {
   RequestCancelled,
   RequestDetail,
   RequestItemRow,
-  TimelineEntry,
 } from "@/lib/request-types";
 
 // /requests/[id]: the header with Cancel, then items, allocations and the
@@ -81,39 +80,6 @@ const allocationColumns = allocationCol.columns([
   allocationCol.accessor("allocated_by", { header: "Allocated by" }),
   allocationCol.accessor("allocated_at", { header: "Allocated", cell: ({ getValue }) => formatIst(getValue()) }),
 ]);
-
-/** What an allocation entry moved, from its payload (HANDOFF 4.4's shapes); nothing for a request entry. */
-function payloadSummary(payload: TimelineEntry["payload"]): string | null {
-  if (typeof payload?.resource !== "string") return null;
-  const quantity = payload.quantity ?? payload.change_qty;
-  return [
-    typeof quantity === "number" ? `${formatQty(quantity)} ${payload.resource}` : payload.resource,
-    typeof payload.batch_code === "string" ? payload.batch_code : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function Timeline({ entries }: { entries: TimelineEntry[] }) {
-  if (entries.length === 0) return <p className="text-muted-foreground">No activity recorded yet.</p>;
-  return (
-    <ol className="flex flex-col gap-2">
-      {entries.map((e, index) => {
-        const summary = payloadSummary(e.payload);
-        return (
-          <li key={`${e.ts}-${e.action}-${e.entity_id}-${index}`}>
-            <span className="font-medium">{humanize(e.action)}</span>
-            {summary && <span> · {summary}</span>}
-            <span className="text-muted-foreground">
-              {" "}
-              · {e.actor_name} · {formatIst(e.ts)}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
 
 function CancelRequest({ requestId, onDone }: { requestId: number; onDone: () => void }) {
   const [open, setOpen] = useState(false);
@@ -262,7 +228,7 @@ export function RequestDetailView({ id, canAllocate }: { id: number; canAllocate
           <CardTitle>Timeline</CardTitle>
         </CardHeader>
         <CardContent>
-          <Timeline entries={timeline} />
+          <ActivityTimeline entries={timeline} />
           {timeline_total > timeline.length && (
             <p className="mt-2 text-muted-foreground">
               Showing the latest {timeline.length} of {timeline_total} events.
