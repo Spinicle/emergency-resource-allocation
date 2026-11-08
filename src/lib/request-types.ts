@@ -1,5 +1,5 @@
-import type { ActivityAction, ActivityEntityType } from "./activity";
-import type { AllocationStatus, EmergencyStatus, ItemStatus, RequestStatus, Role, Urgency } from "./enums";
+import type { ActivityAction } from "./activity";
+import type { AllocationStatus, EmergencyStatus, ItemStatus, RequestStatus, Urgency } from "./enums";
 
 // JSON shapes of /api/requests/* (docs/HANDOFF.md P2.2), shared by the Route
 // Handlers and the pages. Type imports only: client-safe.
@@ -62,8 +62,6 @@ export type TimelineEntry = {
   ts: string;
   action: ActivityAction;
   actor_name: string;
-  actor_role: Role | null;
-  entity_type: ActivityEntityType;
   entity_id: number;
   payload: Record<string, unknown> | null;
 };
@@ -74,6 +72,8 @@ export type RequestDetail = {
   items: RequestItemRow[];
   allocations: RequestAllocationRow[];
   timeline: TimelineEntry[];
+  /** Every entry for this request, which `timeline` above may be capped below. */
+  timeline_total: number;
 };
 
 /** POST /api/requests -> 201 */

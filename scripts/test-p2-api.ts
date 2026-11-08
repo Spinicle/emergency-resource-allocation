@@ -372,6 +372,7 @@ async function testRequests(my: Connection, db: Db): Promise<void> {
   const created = detail.data?.timeline?.find((e: { action: string }) => e.action === "REQUEST_CREATED");
   check("the timeline shows REQUEST_CREATED, in IST wall-clock form",
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(created?.ts ?? "") && created?.actor_name, detail.data?.timeline);
+  check("timeline_total counts the request's entries", detail.data?.timeline_total === 1, detail.data?.timeline_total);
 
   // Roles and ids.
   for (const [method, path, body] of [

@@ -202,7 +202,7 @@ export function RequestDetailView({ id, canAllocate }: { id: number; canAllocate
     );
   }
 
-  const { request, items, allocations, timeline } = data;
+  const { request, items, allocations, timeline, timeline_total } = data;
   // Mirrors the API so the button appears only when it can work. The API still
   // decides: someone may allocate after this page loaded.
   const canCancel =
@@ -263,6 +263,11 @@ export function RequestDetailView({ id, canAllocate }: { id: number; canAllocate
         </CardHeader>
         <CardContent>
           <Timeline entries={timeline} />
+          {timeline_total > timeline.length && (
+            <p className="mt-2 text-muted-foreground">
+              Showing the latest {timeline.length} of {timeline_total} events.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

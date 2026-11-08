@@ -24,24 +24,25 @@ import { requestIdParams } from "@/lib/validators/requests";
  * filter and the sort. MongoDB unreachable -> 503 through handle(), for the
  * whole route, as on every route (HANDOFF 4.6).
  */
-async function loadTimeline(requestId: number): Promise<TimelineEntry[]> {
+async function loadTimeline(requestId: number): Promise<{ timeline: TimelineEntry[]; timeline_total: number }> {
   const db = await getDb();
-  const entries = await db
-    .collection<ActivityEntry>(ACTIVITY_LOG)
-    .find({ "refs.request_id": requestId })
-    .sort({ ts: -1 })
-    .limit(TIMELINE_LIMIT)
-    .toArray();
-  return entries.map((e) => ({
-    // MongoDB holds a UTC instant; the page shows every time as IST wall clock.
-    ts: dateToIst(e.ts),
-    action: e.action,
-    actor_name: e.actor.name,
-    actor_role: e.actor.role,
-    entity_type: e.entity.type,
-    entity_id: e.entity.id,
-    payload: e.payload ?? null,
-  }));
+  const log = db.collection<ActivityEntry>(ACTIVITY_LOG);
+  const filter = { "refs.request_id": requestId };
+  const [entries, timeline_total] = await Promise.all([
+    log.find(filter).sort({ ts: -1 }).limit(TIMELINE_LIMIT).toArray(),
+    log.countDocuments(filter),
+  ]);
+  return {
+    timeline_total,
+    timeline: entries.map((e) => ({
+      // MongoDB holds a UTC instant; the page shows every time as IST wall clock.
+      ts: dateToIst(e.ts),
+      action: e.action,
+      actor_name: e.actor.name,
+      entity_id: e.entity.id,
+      payload: e.payload ?? null,
+    })),
+  };
 }
 
 export const GET = handle<RouteContext<"/api/requests/[id]">>(async (_req, ctx) => {
@@ -49,13 +50,13 @@ export const GET = handle<RouteContext<"/api/requests/[id]">>(async (_req, ctx) 
   const { id } = requestIdParams.parse(await ctx.params);
   const request = await requireRequestAccess(session, id);
 
-  const [items, allocations, timeline] = await Promise.all([
+  const [items, allocations, history] = await Promise.all([
     // quantity_allocated is the sum of the item's non-cancelled allocations,
     // kept by the allocation triggers (HANDOFF 4.4), so there's nothing to re-sum.
     query<RequestItemRow>(
       `SELECT ri.request_item_id, ri.resource_id, res.name AS resource_name, res.unit,
               ri.quantity_requested, ri.quantity_allocated,
-              GREATEST(ri.quantity_requested - ri.quantity_allocated, 0) AS quantity_remaining,
+              ri.quantity_requested - ri.quantity_allocated AS quantity_remaining,
               ri.urgency, ri.status
          FROM request_item ri
          JOIN resource res ON res.resource_id = ri.resource_id
@@ -80,5 +81,5 @@ export const GET = handle<RouteContext<"/api/requests/[id]">>(async (_req, ctx) 
     loadTimeline(id),
   ]);
 
-  return ok({ request, items, allocations, timeline } satisfies RequestDetail);
+  return ok({ request, items, allocations, ...history } satisfies RequestDetail);
 });
