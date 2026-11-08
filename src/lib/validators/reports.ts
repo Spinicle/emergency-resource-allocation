@@ -55,5 +55,15 @@ export const reportListQuery = z
 
 export type ReportListQuery = z.output<typeof reportListQuery>;
 
+/** True for an http(s) URL. A report's photos are free text, so anything else must never become a link. */
+export function isWebUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** /api/reports/[id]: the id is the report's observation_id. */
 export const reportIdParams = z.object({ id: idParam });
