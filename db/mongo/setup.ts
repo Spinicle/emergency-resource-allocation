@@ -2,6 +2,7 @@ import type { Db } from "mongodb";
 import { activityLog } from "./activity_log";
 import { fieldReports } from "./field_reports";
 import type { Queryable } from "./queryable";
+import { seedFieldReportsModule } from "./seed_field_reports";
 
 // MongoDB setup for db:reset (docs/HANDOFF.md 4.2, 4.4). No server-only
 // imports in db/mongo: scripts, tests and Route Handlers all use these modules.
@@ -16,7 +17,7 @@ export type CollectionModule = {
  * Every collection module, in the order db:reset runs them.
  * Part 2 appends seed_field_reports after the Part 1 modules.
  */
-const modules: CollectionModule[] = [activityLog, fieldReports];
+const modules: CollectionModule[] = [activityLog, fieldReports, seedFieldReportsModule];
 
 /**
  * Called by scripts/reset-db.ts on a freshly dropped database, after the
