@@ -1,12 +1,11 @@
 "use client";
 
-import { InlineError } from "@/app/(app)/allocate/bits";
 import { formatQty } from "@/app/(app)/allocate/format";
 import { PhaseBadge } from "@/app/(app)/emergencies/badges";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { UnmetRow } from "@/lib/analytics-types";
 import { useApi } from "@/lib/client";
+import { Loaded } from "./loaded";
 
 // The unmet demand table, used by /analytics (every emergency) and the Unmet
 // demand tab of /emergencies/[id] (one emergency, so no emergency column).
@@ -54,16 +53,17 @@ const rowId = (r: UnmetRow) => `${r.emergency_id}:${r.resource_id}`;
 /** The Unmet demand tab: requested vs allocated per resource, most unmet first. */
 export function EmergencyUnmetDemand({ emergencyId }: { emergencyId: number }) {
   const list = useApi<UnmetRow[]>(`/api/analytics/unmet?emergency=${emergencyId}`);
-
-  if (list.error && !list.data) return <InlineError error={list.error} onRetry={() => void list.mutate()} />;
-  if (!list.data) return <Skeleton className="h-48 w-full" />;
   return (
-    <DataTable
-      columns={oneEmergencyColumns}
-      data={list.data}
-      getRowId={rowId}
-      emptyMessage="Nothing has been requested for this emergency yet."
-    />
+    <Loaded query={list} skeletonClassName="h-48 w-full">
+      {(rows) => (
+        <DataTable
+          columns={oneEmergencyColumns}
+          data={rows}
+          getRowId={rowId}
+          emptyMessage="Nothing has been requested for this emergency yet."
+        />
+      )}
+    </Loaded>
   );
 }
 

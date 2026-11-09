@@ -1,19 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { InlineError, StatusBadge, ToneBadge, type Tone } from "@/app/(app)/allocate/bits";
+import { StatusBadge, ToneBadge, type Tone } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
 import { PhaseBadge } from "@/app/(app)/emergencies/badges";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { EscalatingRow, FulfilmentRow, GapData, GapRow, GapStatus, UnmetRow } from "@/lib/analytics-types";
-import type { ApiError } from "@/lib/client";
 import { useApi } from "@/lib/client";
 import type { EmergencyRow } from "@/lib/emergency-types";
 import { EscalatingChart, FulfilmentChart, GapChart, UnmetChart } from "./analytics-charts";
+import { Loaded } from "./loaded";
 import { UnmetTable } from "./unmet-table";
 
 // /analytics (docs/HANDOFF.md P2.5): a chart and a table per question. Tabs only
@@ -30,19 +29,6 @@ function ChartCard({ title, description, children }: { title: string; descriptio
       <CardContent>{children}</CardContent>
     </Card>
   );
-}
-
-/** A failed first load shows inline with a Retry; a failed refetch keeps the last data. */
-function Loaded<T>({
-  query,
-  children,
-}: {
-  query: { data?: T; error?: ApiError; mutate: () => unknown };
-  children: (data: T) => React.ReactNode;
-}) {
-  if (query.error && query.data === undefined) return <InlineError error={query.error} onRetry={() => void query.mutate()} />;
-  if (query.data === undefined) return <Skeleton className="h-72 w-full" />;
-  return <div className="flex flex-col gap-4">{children(query.data)}</div>;
 }
 
 function UnmetTab() {
