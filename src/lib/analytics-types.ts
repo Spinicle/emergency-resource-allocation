@@ -49,7 +49,8 @@ export type EscalatingRow = {
   observed_at: string;
 };
 
-export const GAP_STATUSES = ["OBSERVED_ONLY", "BOTH", "REQUESTED_ONLY"] as const;
+/** DIFFERENT_UNIT: reports name a requested resource in a unit it isn't measured in, so nobody can say it's unrequested. */
+export const GAP_STATUSES = ["OBSERVED_ONLY", "BOTH", "DIFFERENT_UNIT", "REQUESTED_ONLY"] as const;
 export type GapStatus = (typeof GAP_STATUSES)[number];
 
 /**

@@ -1251,9 +1251,35 @@ async function testAnalyticsFixtures(): Promise<void> {
   const water = rows.find((r) => r.item === "Drinking water" && r.unit === "L");
   check("a need with no unit joins the catalogue unit's row", water?.observed_quantity === 15 && water?.mentions === 2 && !water?.unit_differs, water);
   const bottles = rows.find((r) => r.unit === "bottle");
-  check("a different unit stays separate and is flagged", bottles?.observed_quantity === 3 && bottles?.unit_differs === true && bottles?.in_catalogue === true, bottles);
+  check(
+    "a different unit stays separate and is flagged; unrequested, it's observed-only",
+    bottles?.observed_quantity === 3 && bottles?.unit_differs === true && bottles?.in_catalogue === true && bottles?.status === "OBSERVED_ONLY",
+    bottles,
+  );
   const sandbags = rows.find((r) => r.item === "Sandbags");
   check("free text is flagged as not in the catalogue", sandbags?.in_catalogue === false && sandbags?.unit_differs === false, sandbags);
+
+  // Once the resource is requested, a report in another unit isn't "not requested" any more.
+  const resources: Row[] = (await coord("GET", "/api/resources")).data ?? [];
+  const requested = await coord("POST", "/api/requests", {
+    impact_id: impact.data?.impact_id,
+    description: `${ZZ_REQ}${RUN} gap unit`,
+    items: [{ resource_id: resources.find((r) => r.name === "Drinking water")?.resource_id, quantity_requested: 10, urgency: "LOW" }],
+  });
+  check("requests Drinking water in its own unit -> 201", requested.status === 201, requested);
+  const afterRequest = (await coord("GET", `/api/analytics/gap?emergency=${id}`)).data;
+  const afterRows: Row[] = afterRequest?.rows ?? [];
+  const bottlesAfter = afterRows.find((r) => r.unit === "bottle");
+  check(
+    "requested, a different unit gets DIFFERENT_UNIT with no requested figures",
+    bottlesAfter?.status === "DIFFERENT_UNIT" && bottlesAfter?.unit_differs === true && bottlesAfter?.quantity_requested === null,
+    bottlesAfter,
+  );
+  check(
+    "DIFFERENT_UNIT stays out of the not-requested count",
+    afterRequest?.counts?.DIFFERENT_UNIT === 1 && afterRequest?.counts?.OBSERVED_ONLY === 2 && afterRequest?.counts?.BOTH === 1,
+    afterRequest?.counts,
+  );
 }
 
 const MONGO_DOWN_PORT = 3101;

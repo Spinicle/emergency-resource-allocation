@@ -51,7 +51,7 @@ type Observed = { item: string; quantity: number; mentions: number };
  * unit, or no unit given) and those that aren't: free text naming no resource,
  * or a unit the resource isn't measured in.
  */
-function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
+function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[], requested: Set<string>) {
   const units = new Map(catalogue.map((c) => [normal(c.name), { name: c.name, unit: c.unit }]));
   const observed = new Map<string, Observed>();
   const unmatched = new Map<string, GapRow>();
@@ -79,7 +79,7 @@ function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
         key: rowKey,
         item: need.item,
         unit: need.unit,
-        status: "OBSERVED_ONLY",
+        status: requested.has(key) ? "DIFFERENT_UNIT" : "OBSERVED_ONLY",
         in_catalogue: resource !== undefined,
         unit_differs: resource !== undefined,
         observed_quantity: need.quantity,
@@ -93,12 +93,12 @@ function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
   return { observed, unmatched: [...unmatched.values()], units };
 }
 
-/** Observed-only first, most mentioned on top; then the rest by what's still unmet. */
+/** Observed-only first; rows with no requested figures by mentions, the rest by what's still unmet. */
 function compareGapRows(a: GapRow, b: GapRow): number {
-  const rank: Record<GapStatus, number> = { OBSERVED_ONLY: 0, BOTH: 1, REQUESTED_ONLY: 2 };
+  const rank: Record<GapStatus, number> = { OBSERVED_ONLY: 0, BOTH: 1, DIFFERENT_UNIT: 2, REQUESTED_ONLY: 3 };
   return (
     rank[a.status] - rank[b.status] ||
-    (a.status === "OBSERVED_ONLY" ? b.mentions - a.mentions : (b.quantity_unmet ?? 0) - (a.quantity_unmet ?? 0)) ||
+    (a.quantity_unmet === null ? b.mentions - a.mentions : (b.quantity_unmet ?? 0) - a.quantity_unmet) ||
     a.item.localeCompare(b.item)
   );
 }
@@ -129,7 +129,8 @@ export async function loadGap(emergencyId: number): Promise<GapData> {
     ])
     .toArray();
 
-  const { observed, unmatched, units } = matchNeeds(needs, catalogue);
+  const requestedNames = new Set(requested.map((r) => normal(r.resource_name)));
+  const { observed, unmatched, units } = matchNeeds(needs, catalogue, requestedNames);
 
   const rows: GapRow[] = [...unmatched];
   for (const r of requested) {
@@ -168,7 +169,7 @@ export async function loadGap(emergencyId: number): Promise<GapData> {
   }
 
   rows.sort(compareGapRows);
-  const counts: Record<GapStatus, number> = { OBSERVED_ONLY: 0, BOTH: 0, REQUESTED_ONLY: 0 };
+  const counts: Record<GapStatus, number> = { OBSERVED_ONLY: 0, BOTH: 0, DIFFERENT_UNIT: 0, REQUESTED_ONLY: 0 };
   for (const row of rows) counts[row.status] += 1;
   return { emergency, rows, counts };
 }

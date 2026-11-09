@@ -125,6 +125,7 @@ function EscalatingTab() {
 const GAP_LABEL: Record<GapStatus, { text: string; tone: Tone }> = {
   OBSERVED_ONLY: { text: "Seen, not requested", tone: "red" },
   BOTH: { text: "Seen and requested", tone: "blue" },
+  DIFFERENT_UNIT: { text: "Different unit", tone: "amber" },
   REQUESTED_ONLY: { text: "Requested, not seen", tone: "grey" },
 };
 
@@ -138,7 +139,7 @@ const gapColumns = gapCol.columns([
       <span className="flex flex-wrap items-center gap-2 font-medium">
         {getValue()}
         {!row.original.in_catalogue && <ToneBadge tone="grey">Not in catalogue</ToneBadge>}
-        {row.original.unit_differs && <ToneBadge tone="amber">Different unit</ToneBadge>}
+        {row.original.unit_differs && row.original.status !== "DIFFERENT_UNIT" && <ToneBadge tone="amber">Different unit</ToneBadge>}
       </span>
     ),
   }),
@@ -180,7 +181,7 @@ function GapResult({ emergencyId }: { emergencyId: number }) {
         <>
           <ChartCard
             title="Needs seen in field reports"
-            description={`${counts.OBSERVED_ONLY} seen but not requested, ${counts.BOTH} seen and requested, ${counts.REQUESTED_ONLY} requested but not seen`}
+            description={`${counts.OBSERVED_ONLY} seen but not requested, ${counts.BOTH} seen and requested, ${counts.REQUESTED_ONLY} requested but not seen${counts.DIFFERENT_UNIT > 0 ? `, ${counts.DIFFERENT_UNIT} seen in a different unit` : ""}`}
           >
             <GapChart rows={rows} />
           </ChartCard>

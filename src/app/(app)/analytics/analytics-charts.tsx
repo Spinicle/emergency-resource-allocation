@@ -145,6 +145,8 @@ export function EscalatingChart({ rows }: { rows: EscalatingRow[] }) {
 const gapConfig = {
   notRequested: { label: "Seen, not requested", color: "var(--chart-4)" },
   requested: { label: "Seen and requested", color: "var(--chart-1)" },
+  // Neutral: the third chart token is too close to chart-4 in dark mode.
+  differentUnit: { label: "Different unit", color: "var(--muted-foreground)" },
 } satisfies ChartConfig;
 
 /**
@@ -162,6 +164,7 @@ export function GapChart({ rows }: { rows: GapRow[] }) {
       label: r.unit ? `${r.item} (${r.unit})` : r.item,
       notRequested: r.status === "OBSERVED_ONLY" ? r.mentions : undefined,
       requested: r.status === "BOTH" ? r.mentions : undefined,
+      differentUnit: r.status === "DIFFERENT_UNIT" ? r.mentions : undefined,
     }));
   if (top.length === 0) return <NoData>No field report for this emergency names a need.</NoData>;
 
@@ -179,6 +182,11 @@ export function GapChart({ rows }: { rows: GapRow[] }) {
         <Bar dataKey="requested" stackId="mentions" fill="var(--color-requested)" radius={BAR_RADIUS}>
           <LabelList dataKey="requested" position="right" className="fill-foreground" />
         </Bar>
+        {top.some((r) => r.differentUnit !== undefined) && (
+          <Bar dataKey="differentUnit" stackId="mentions" fill="var(--color-differentUnit)" radius={BAR_RADIUS}>
+            <LabelList dataKey="differentUnit" position="right" className="fill-foreground" />
+          </Bar>
+        )}
       </BarChart>
     </ChartContainer>
   );
