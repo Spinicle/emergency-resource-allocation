@@ -10,6 +10,7 @@
     "db:reset": "tsx scripts/reset-db.ts",
     "db:test": "tsx scripts/test-db.ts",
     "db:queries": "tsx scripts/run-queries.ts",
+    "db:bench": "tsx scripts/bench.ts",
     "db:race": "tsx scripts/race-test.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "db:enums": "tsx scripts/check-enums.ts",
