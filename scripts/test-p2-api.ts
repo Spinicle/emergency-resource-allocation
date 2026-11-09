@@ -1236,13 +1236,18 @@ async function testAnalyticsFixtures(): Promise<void> {
       { item: " DRINKING water ", est_qty: 10 },
       { item: "Drinking water", est_qty: 3, unit: "bottle" },
       { item: "Sandbags", est_qty: 7, unit: "kg" },
+      { item: "ÉCLAIR", est_qty: 1, unit: "kg" },
+      { item: "éclair", est_qty: 2, unit: "kg" },
     ],
   });
   check("files a report with mixed spellings and units -> 201", filed.status === 201, filed);
 
   const gap = (await coord("GET", `/api/analytics/gap?emergency=${id}`)).data;
   const rows: Row[] = gap?.rows ?? [];
-  check("gap has 3 observed-only rows", gap?.counts?.OBSERVED_ONLY === 3 && rows.length === 3, rows);
+  check("gap has 4 observed-only rows", gap?.counts?.OBSERVED_ONLY === 4 && rows.length === 4, rows);
+  check("gap row keys are unique", new Set(rows.map((r) => r.key)).size === rows.length, rows.map((r) => r.key));
+  const eclair = rows.filter((r) => r.item.toLowerCase() === "éclair");
+  check("non-ASCII spellings of one need merge", eclair.length === 1 && eclair[0].observed_quantity === 3 && eclair[0].mentions === 2, eclair);
   const water = rows.find((r) => r.item === "Drinking water" && r.unit === "L");
   check("a need with no unit joins the catalogue unit's row", water?.observed_quantity === 15 && water?.mentions === 2 && !water?.unit_differs, water);
   const bottles = rows.find((r) => r.unit === "bottle");

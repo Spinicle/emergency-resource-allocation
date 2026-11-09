@@ -54,7 +54,7 @@ type Observed = { item: string; quantity: number; mentions: number };
 function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
   const units = new Map(catalogue.map((c) => [normal(c.name), { name: c.name, unit: c.unit }]));
   const observed = new Map<string, Observed>();
-  const unmatched: GapRow[] = [];
+  const unmatched = new Map<string, GapRow>();
 
   for (const need of needs) {
     const key = normal(need.item);
@@ -64,9 +64,19 @@ function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
       entry.quantity += need.quantity;
       entry.mentions += need.mentions;
       observed.set(key, entry);
+      continue;
+    }
+
+    // MongoDB's $toLower only folds ASCII, so "ÉCLAIR" and "éclair" reach here as
+    // two groups. They're one need, and a row's key must stay unique.
+    const rowKey = `other:${key}:${need.unit === null ? "" : normal(need.unit)}`;
+    const existing = unmatched.get(rowKey);
+    if (existing) {
+      existing.observed_quantity = (existing.observed_quantity ?? 0) + need.quantity;
+      existing.mentions += need.mentions;
     } else {
-      unmatched.push({
-        key: `other:${key}:${need.unit === null ? "" : normal(need.unit)}`,
+      unmatched.set(rowKey, {
+        key: rowKey,
         item: need.item,
         unit: need.unit,
         status: "OBSERVED_ONLY",
@@ -80,7 +90,7 @@ function matchNeeds(needs: NeedGroup[], catalogue: CatalogueRow[]) {
       });
     }
   }
-  return { observed, unmatched, units };
+  return { observed, unmatched: [...unmatched.values()], units };
 }
 
 /** Observed-only first, most mentioned on top; then the rest by what's still unmet. */
