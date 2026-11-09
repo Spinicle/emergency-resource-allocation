@@ -132,7 +132,7 @@ function LedgerSheet({ batch, onClose }: { batch: StockRow | null; onClose: () =
   const ledger = useApi<LedgerRow[]>(batch ? `/api/stock/${batch.stock_id}/ledger` : null);
   return (
     <Sheet open={batch !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent className="w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-3xl">
         <SheetHeader>
           <SheetTitle>Ledger: {batch?.batch_code}</SheetTitle>
           <SheetDescription>{batch ? `${batch.resource_name}, ${batch.center_name}` : ""}</SheetDescription>
