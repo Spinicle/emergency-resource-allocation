@@ -1143,7 +1143,9 @@ async function testAnalytics(my: Connection): Promise<void> {
   ];
   check("unmet rows have every column", unmet.length > 0 && unmet.every((r) => unmetKeys.every((k) => k in r)), unmet[0]);
   check("unmet never goes below 0", unmet.every((r) => r.quantity_unmet >= 0));
-  check("unmet = requested - allocated on every row", unmet.every((r) => r.quantity_unmet === r.quantity_requested - r.quantity_allocated));
+  // DECIMAL(12,2) arrives as a JS number, so compare whole cents: 100.1 - 33.3 isn't exactly 66.8.
+  const cents = (value: number) => Math.round(value * 100);
+  check("unmet = requested - allocated on every row", unmet.every((r) => cents(r.quantity_unmet) === cents(r.quantity_requested) - cents(r.quantity_allocated)));
   check("unmet is ordered biggest first", unmet.every((r, i) => i === 0 || unmet[i - 1].quantity_unmet >= r.quantity_unmet));
   const narrowed: Row[] = (await coord("GET", `/api/analytics/unmet?emergency=${flood}`)).data ?? [];
   check("?emergency= keeps only that emergency", narrowed.length > 0 && narrowed.every((r) => r.emergency_id === flood), narrowed[0]);
@@ -1153,8 +1155,8 @@ async function testAnalytics(my: Connection): Promise<void> {
        FROM request_item ri JOIN resource_request rr ON rr.request_id = ri.request_id
       WHERE ri.status <> 'CANCELLED' AND rr.status <> 'CANCELLED'`,
   );
-  const viewAllocated = unmet.reduce((sum, r) => sum + r.quantity_allocated, 0);
-  check("allocated agrees with request_item.quantity_allocated", viewAllocated === Number(live.allocated), { viewAllocated, live });
+  const viewAllocated = unmet.reduce((sum, r) => sum + cents(r.quantity_allocated), 0);
+  check("allocated agrees with request_item.quantity_allocated", viewAllocated === cents(Number(live.allocated)), { viewAllocated, live });
 
   const fulfilment: Row[] = (await coord("GET", "/api/analytics/fulfilment")).data ?? [];
   check("fulfilment has one row per emergency", fulfilment.length === emergencies.length, fulfilment.length);
