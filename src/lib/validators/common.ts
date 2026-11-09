@@ -7,7 +7,7 @@ import { z } from "zod";
 export const MAX_ID = 2_147_483_647;
 
 /** An id in a JSON body. */
-export const idSchema = z.number().int().positive().max(MAX_ID);
+export const idSchema = z.number("Choose one").int().positive().max(MAX_ID);
 
 /**
  * An id in a path segment or query string, where it arrives as text. Only
@@ -36,7 +36,7 @@ export const MAX_QUANTITY = 9_999_999_999.99;
 
 /** A quantity (allocated, received): above 0, at most 2 decimal places. */
 export const quantitySchema = z
-  .number()
+  .number("Enter a quantity")
   .positive("Must be greater than 0")
   .multipleOf(0.01, "At most 2 decimal places")
   .max(MAX_QUANTITY);

@@ -41,7 +41,7 @@ export type ReceiveBatchInput = z.output<typeof receiveBatchSchema>;
 /** POST /api/stock/[id]/adjust: a non-zero change with a reason. */
 export const adjustStockSchema = z.object({
   delta: z
-    .number()
+    .number("Enter the change")
     .multipleOf(0.01, "At most 2 decimal places")
     .min(-MAX_QUANTITY)
     .max(MAX_QUANTITY)
