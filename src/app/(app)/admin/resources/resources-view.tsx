@@ -3,7 +3,7 @@
 import { Pencil, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { InlineError } from "@/app/(app)/allocate/bits";
-import { ChoiceSelect } from "@/app/(app)/emergencies/emergency-dialog";
+import { ChoiceSelect } from "@/components/choice-select";
 import { humanize } from "@/app/(app)/emergencies/format";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
 import { FormField } from "@/components/form-field";
@@ -16,7 +16,7 @@ import { api, useApi } from "@/lib/client";
 import { RESOURCE_CATEGORIES } from "@/lib/enums";
 import type { UpdateResourceInput } from "@/lib/validators/admin";
 import { ConfirmAction } from "../confirm-action";
-import { FormDialog, type ReadField } from "../form-dialog";
+import { FormDialog, type ReadField } from "@/components/form-dialog";
 
 // /admin/resources: the catalogue. A used resource keeps its name and unit,
 // because requests and field reports match on them. The API enforces that; here

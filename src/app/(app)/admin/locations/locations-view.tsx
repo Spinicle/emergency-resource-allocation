@@ -13,7 +13,7 @@ import type { FieldErrors } from "@/lib/api-contract";
 import { api, useApi } from "@/lib/client";
 import type { UpdateLocationInput } from "@/lib/validators/admin";
 import { ConfirmAction } from "../confirm-action";
-import { FormDialog, type ReadField } from "../form-dialog";
+import { FormDialog, type ReadField } from "@/components/form-dialog";
 
 // /admin/locations: grid locations. One used by a center or an impact can't
 // change, because distances and stored field reports depend on it. The API

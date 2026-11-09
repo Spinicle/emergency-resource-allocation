@@ -4,7 +4,7 @@ import { Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { InlineError } from "@/app/(app)/allocate/bits";
-import { ChoiceSelect } from "@/app/(app)/emergencies/emergency-dialog";
+import { ChoiceSelect } from "@/components/choice-select";
 import { humanize } from "@/app/(app)/emergencies/format";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
 import { FormField } from "@/components/form-field";
@@ -27,7 +27,7 @@ import { api, useApi } from "@/lib/client";
 import { CENTER_STATUSES, CENTER_TYPES, type CenterStatus } from "@/lib/enums";
 import type { UpdateCenterInput } from "@/lib/validators/admin";
 import { ConfirmAction } from "../confirm-action";
-import { FormDialog } from "../form-dialog";
+import { FormDialog } from "@/components/form-dialog";
 
 // /admin/centers: resource centers. A center keeps its location once created.
 // Closing asks first; a closed center can be reopened from the same control.

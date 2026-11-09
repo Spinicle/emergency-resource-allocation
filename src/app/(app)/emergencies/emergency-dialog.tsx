@@ -4,6 +4,7 @@ import { Pencil, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ChoiceSelect } from "@/components/choice-select";
 import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,47 +17,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { FieldErrors } from "@/lib/api-contract";
 import { api, ApiError } from "@/lib/client";
 import type { EmergencyCreated, EmergencyHeader } from "@/lib/emergency-types";
 import { EMERGENCY_TYPES } from "@/lib/enums";
 import type { CreateEmergencyInput, UpdateEmergencyInput } from "@/lib/validators/emergencies";
-import { humanize, toDateTimeInput } from "./format";
+import { toDateTimeInput } from "./format";
 
 /** Statuses the edit form offers. Closing is its own action (with a confirmation) on the detail page. */
 const EDIT_STATUSES = ["ACTIVE", "CONTAINED"] as const;
-
-export function ChoiceSelect({
-  id,
-  name,
-  defaultValue,
-  options,
-  invalid,
-}: {
-  id: string;
-  name: string;
-  defaultValue: string;
-  options: readonly string[];
-  invalid: boolean;
-}) {
-  // With a name, Radix renders a hidden <select>, so the value is in FormData.
-  return (
-    <Select name={name} defaultValue={defaultValue}>
-      <SelectTrigger id={id} aria-invalid={invalid} className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((o) => (
-          <SelectItem key={o} value={o}>
-            {humanize(o)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
 
 /**
  * "New emergency", or "Edit" when given an emergency. Creating opens the new

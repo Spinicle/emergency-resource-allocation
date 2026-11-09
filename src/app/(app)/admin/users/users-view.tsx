@@ -16,7 +16,7 @@ import { api, useApi } from "@/lib/client";
 import { ROLES, type Role } from "@/lib/enums";
 import type { CreateUserInput, UpdateUserInput } from "@/lib/validators/admin";
 import { ConfirmAction } from "../confirm-action";
-import { FormDialog, type ReadField } from "../form-dialog";
+import { FormDialog, type ReadField } from "@/components/form-dialog";
 
 // /admin/users: create, change role or center, deactivate and reactivate. Users
 // are never deleted. Admins don't get these controls on their own row.
