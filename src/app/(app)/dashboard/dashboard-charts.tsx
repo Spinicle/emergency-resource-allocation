@@ -12,13 +12,26 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { ReportDayBucket, TopNeed } from "@/lib/dashboard-types";
-import { EMERGENCY_TYPES } from "@/lib/enums";
+import { EMERGENCY_TYPES, type EmergencyType } from "@/lib/enums";
 
 // Colours are the --chart-N tokens, which swap with the OS theme in globals.css.
 // shadcn's `theme` option needs a .dark class this app doesn't have, so it's not used.
 
-const CHART_TOKENS = 5;
-const chartColor = (index: number) => `var(--chart-${(index % CHART_TOKENS) + 1})`;
+/**
+ * One colour per type, so a line keeps its colour as types enter and leave the
+ * window. There are 5 tokens and 8 types; the last 3 are mid-tones that read on
+ * both themes.
+ */
+const TYPE_COLORS: Record<EmergencyType, string> = {
+  FLOOD: "var(--chart-1)",
+  LANDSLIDE: "var(--chart-2)",
+  EPIDEMIC: "var(--chart-3)",
+  FIRE: "var(--chart-4)",
+  CYCLONE: "var(--chart-5)",
+  EARTHQUAKE: "oklch(0.62 0.17 350)",
+  HEATWAVE: "oklch(0.64 0.15 140)",
+  OTHER: "oklch(0.6 0.02 260)",
+};
 
 /** "2026-11-05" -> "5 Nov". */
 const dayLabel = (day: string) => formatIst(day).replace(/ \d{4}$/, "");
@@ -32,7 +45,7 @@ export function ReportsByDayChart({ buckets }: { buckets: ReportDayBucket[] }) {
   const types = EMERGENCY_TYPES.filter((t) => buckets.some((b) => b.counts[t] !== undefined));
   if (types.length === 0) return <NoData>No field reports in the last 14 days.</NoData>;
 
-  const config: ChartConfig = Object.fromEntries(types.map((t, i) => [t, { label: humanize(t), color: chartColor(i) }]));
+  const config: ChartConfig = Object.fromEntries(types.map((t) => [t, { label: humanize(t), color: TYPE_COLORS[t] }]));
   const rows = buckets.map((b) => ({
     label: dayLabel(b.day),
     ...Object.fromEntries(types.map((t) => [t, b.counts[t] ?? 0])),
@@ -54,7 +67,7 @@ export function ReportsByDayChart({ buckets }: { buckets: ReportDayBucket[] }) {
   );
 }
 
-const needsConfig = { quantity: { label: "Estimated quantity", color: chartColor(0) } } satisfies ChartConfig;
+const needsConfig = { quantity: { label: "Estimated quantity", color: "var(--chart-1)" } } satisfies ChartConfig;
 
 /** Units differ between bars, so each one names its unit and prints its value. */
 export function TopNeedsChart({ needs }: { needs: TopNeed[] }) {
