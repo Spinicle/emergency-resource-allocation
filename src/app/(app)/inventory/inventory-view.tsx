@@ -185,7 +185,9 @@ function batchColumns(onDone: () => void, openLedger: (batch: StockRow) => void)
       header: ({ column }) => <SortableHeader column={column} title="Quantity" />,
       cell: ({ getValue, row }) => `${formatQty(getValue())} ${row.original.unit}`,
     }),
-    batchCol.accessor("days_left", {
+    // Sorts on the days left, with no-expiry batches after every dated one.
+    batchCol.accessor((row) => row.days_left ?? Number.MAX_SAFE_INTEGER, {
+      id: "days_left",
       header: ({ column }) => <SortableHeader column={column} title="Expiry" />,
       cell: ({ row }) => <ExpiryBadge batch={row.original} />,
     }),
