@@ -34,6 +34,7 @@ import { ACTIVITY_FEED_LIMIT, LATEST_REPORTS_LIMIT, REPORT_WINDOW_DAYS, TOP_NEED
 import { EMERGENCY_TYPES } from "../src/lib/enums";
 import { dateToIst, istToDate } from "../src/lib/ist";
 import { appConnection } from "./lib/app-connection";
+import { HOSTILE_SEARCHES } from "./lib/hostile-search";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
 let BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
@@ -86,9 +87,6 @@ async function signIn(email: string): Promise<Call> {
   if (!res.ok || !cookie) throw new ScriptError(`couldn't sign in as ${email} (HTTP ${res.status})`);
   return client(cookie);
 }
-
-/** Valid text but invalid boolean-mode syntax, plus T17's injection attempt. */
-const HOSTILE_SEARCHES = ["' OR 1=1 --", "' OR_1=1 --", "--", "+", "+-", '"', "(((", "a* *b", "@3", "<>~", "%", "\\", "_", "___"];
 
 async function testEmergencies(my: Connection): Promise<void> {
   console.log("\nP2.1 Emergencies and impacts");
@@ -723,7 +721,7 @@ async function testReports(my: Connection, db: Db): Promise<void> {
   check("a quoted phrase is searched", phrase.status === 200 && phrase.data?.total > 0, phrase.data?.total);
   for (const term of HOSTILE_SEARCHES) {
     const res = await coord("GET", `/api/reports?q=${encodeURIComponent(term)}`);
-    check(`hostile search ${JSON.stringify(term)} -> 200`, res.status === 200, res);
+    check(`hostile search ${JSON.stringify(term)} -> 200, no rows`, res.status === 200 && res.data?.total === 0 && res.data?.reports?.length === 0, res);
   }
 
   // Refusals.
