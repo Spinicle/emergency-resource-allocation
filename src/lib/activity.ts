@@ -24,14 +24,40 @@ export const ACTIVITY_ACTIONS = [
   "EMERGENCY_CLOSED",
   "IMPACT_ADDED",
   "IMPACT_UPDATED",
+  // Part 2 (P2.6): admin changes. The payload's name labels the entry; never a password.
+  "USER_CREATED",
+  "USER_UPDATED",
+  "USER_DEACTIVATED",
+  "USER_REACTIVATED",
+  "RESOURCE_CREATED",
+  "RESOURCE_UPDATED",
+  "RESOURCE_DELETED",
+  "CENTER_CREATED",
+  "CENTER_UPDATED",
+  "CENTER_DELETED",
+  "LOCATION_CREATED",
+  "LOCATION_UPDATED",
+  "LOCATION_DELETED",
 ] as const;
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
 
 /**
  * What an entry is about. STOCK is one batch (stock_id); FIELD_REPORT is keyed
- * by observation_id; EMERGENCY by emergency_id and IMPACT by impact_id (P2.1).
+ * by observation_id; EMERGENCY by emergency_id and IMPACT by impact_id (P2.1);
+ * USER, RESOURCE, CENTER and LOCATION by their primary keys (P2.6).
  */
-export const ACTIVITY_ENTITY_TYPES = ["REQUEST", "ALLOCATION", "STOCK", "FIELD_REPORT", "EMERGENCY", "IMPACT"] as const;
+export const ACTIVITY_ENTITY_TYPES = [
+  "REQUEST",
+  "ALLOCATION",
+  "STOCK",
+  "FIELD_REPORT",
+  "EMERGENCY",
+  "IMPACT",
+  "USER",
+  "RESOURCE",
+  "CENTER",
+  "LOCATION",
+] as const;
 export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number];
 
 /**

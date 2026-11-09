@@ -21,6 +21,14 @@ export function feedSubject({ entity_type, entity_id, payload }: DashboardActivi
       return `Emergency ${entity_id}`;
     case "IMPACT":
       return `Impact ${entity_id}`;
+    case "USER":
+      return `User ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+    case "RESOURCE":
+      return `Resource ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+    case "CENTER":
+      return `Center ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+    case "LOCATION":
+      return `Location ${typeof payload?.name === "string" ? payload.name : entity_id}`;
     default: {
       const unhandled: never = entity_type;
       return unhandled;
