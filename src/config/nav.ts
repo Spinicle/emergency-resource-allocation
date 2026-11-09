@@ -24,10 +24,6 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   roles: readonly Role[];
-  /** The task that builds the page; shown on its placeholder until then. */
-  owner: string;
-  /** One line for the placeholder. */
-  summary: string;
 };
 
 export type NavGroup = { label: string; items: NavItem[] };
@@ -39,44 +35,33 @@ export const NAV: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ALL, owner: "P2.4",
-        summary: "KPIs, the impact map and recent activity, scoped to your role." },
-      { href: "/allocate", label: "Allocate", icon: ArrowRightLeft, roles: ["ADMIN", "COORDINATOR"], owner: "P1.8",
-        summary: "The priority queue and batch suggestions for allocating stock." },
-      { href: "/emergencies", label: "Emergencies", icon: Siren, roles: FIELD, owner: "P2.1",
-        summary: "Emergencies, their impacted locations and observations." },
-      { href: "/requests", label: "Requests", icon: ClipboardList, roles: FIELD, owner: "P2.2",
-        summary: "Resource requests and their items, allocations and status." },
-      { href: "/reports", label: "Field reports", icon: FileText, roles: FIELD, owner: "P2.3",
-        summary: "Field reports from MongoDB, with text and near-a-location search." },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
+      { href: "/allocate", label: "Allocate", icon: ArrowRightLeft, roles: ["ADMIN", "COORDINATOR"] },
+      { href: "/emergencies", label: "Emergencies", icon: Siren, roles: FIELD },
+      { href: "/requests", label: "Requests", icon: ClipboardList, roles: FIELD },
+      { href: "/reports", label: "Field reports", icon: FileText, roles: FIELD },
     ],
   },
   {
     label: "Stock",
     items: [
       // ADMIN too: three seeded centers have no manager. A CM stays on their own center; ADMIN picks one.
-      { href: "/inventory", label: "Inventory", icon: Warehouse, roles: ["ADMIN", "CENTER_MANAGER"], owner: "P2.6",
-        summary: "A center's batches, adjustments, ledger and dispatches." },
+      { href: "/inventory", label: "Inventory", icon: Warehouse, roles: ["ADMIN", "CENTER_MANAGER"] },
     ],
   },
   {
     label: "Insights",
     items: [
-      { href: "/analytics", label: "Analytics", icon: ChartColumn, roles: ["ADMIN", "COORDINATOR"], owner: "P2.5",
-        summary: "Unmet demand, fulfilment rates, escalating impacts and the field-vs-request gap." },
+      { href: "/analytics", label: "Analytics", icon: ChartColumn, roles: ["ADMIN", "COORDINATOR"] },
     ],
   },
   {
     label: "Admin",
     items: [
-      { href: "/admin/users", label: "Users", icon: Users, roles: ["ADMIN"], owner: "P2.6",
-        summary: "Create users, change roles and centers, deactivate accounts." },
-      { href: "/admin/resources", label: "Resources", icon: Package, roles: ["ADMIN"], owner: "P2.6",
-        summary: "The resource catalogue." },
-      { href: "/admin/centers", label: "Centers", icon: Building2, roles: ["ADMIN"], owner: "P2.6",
-        summary: "Resource centers and their status." },
-      { href: "/admin/locations", label: "Locations", icon: MapPin, roles: ["ADMIN"], owner: "P2.6",
-        summary: "Grid locations used by impacts and centers." },
+      { href: "/admin/users", label: "Users", icon: Users, roles: ["ADMIN"] },
+      { href: "/admin/resources", label: "Resources", icon: Package, roles: ["ADMIN"] },
+      { href: "/admin/centers", label: "Centers", icon: Building2, roles: ["ADMIN"] },
+      { href: "/admin/locations", label: "Locations", icon: MapPin, roles: ["ADMIN"] },
     ],
   },
 ];
@@ -89,11 +74,6 @@ export function navFor(role: Role): NavGroup[] {
 }
 
 const NAV_ITEMS: NavItem[] = NAV.flatMap((g) => g.items);
-
-/** The nav item for exactly this path, if it is one. */
-export function findNavItem(path: string): NavItem | undefined {
-  return NAV_ITEMS.find((i) => i.href === path);
-}
 
 /** The nav item a page belongs to: its own path or one under it (/requests/12 → Requests). */
 export function sectionFor(pathname: string): NavItem | undefined {
