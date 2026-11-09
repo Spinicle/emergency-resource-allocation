@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ROLE_LABELS, sectionFor } from "@/config/nav";
 import type { Session } from "@/lib/auth";
-import { api } from "@/lib/client";
+import { api, clearApiCache } from "@/lib/client";
 
 export function AppHeader({ session }: { session: Session }) {
   const pathname = usePathname();
@@ -28,6 +28,7 @@ export function AppHeader({ session }: { session: Session }) {
     // POST /api/auth/logout clears the session cookie; refresh drops the cached signed-in pages.
     try {
       await api("/api/auth/logout", { method: "POST" });
+      await clearApiCache();
       router.replace("/login");
       router.refresh();
     } catch (err) {

@@ -1,5 +1,5 @@
 import "client-only";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import type { ApiErrorBody, ErrorCode, FieldErrors } from "@/lib/api-contract";
 
 // Browser-side access to /api/* (docs/HANDOFF.md 4.5). Pages never import DB code.
@@ -43,6 +43,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return body.data as T;
+}
+
+/**
+ * Forgets every cached read. SWR's cache outlives a sign-out (those are soft
+ * navigations) and its keys are bare paths, so without this the next user would
+ * first see the last user's role-scoped data.
+ */
+export function clearApiCache(): Promise<unknown> {
+  return mutate(() => true, undefined, { revalidate: false });
 }
 
 /** SWR over api(): useApi<Row[]>('/api/requests'). Pass null to skip the request. */

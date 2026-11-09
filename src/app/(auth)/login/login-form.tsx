@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { FieldErrors } from "@/lib/api-contract";
 import type { Session } from "@/lib/auth";
-import { api, ApiError } from "@/lib/client";
+import { api, ApiError, clearApiCache } from "@/lib/client";
 
 /** Email and password, posted to /api/auth/login. next is already checked by safeNext(). */
 export function LoginForm({ next }: { next: string }) {
@@ -26,6 +26,8 @@ export function LoginForm({ next }: { next: string }) {
         method: "POST",
         body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
       });
+      // Also covers a session that expired without a sign-out.
+      await clearApiCache();
       router.replace(next);
       router.refresh();
     } catch (err) {
