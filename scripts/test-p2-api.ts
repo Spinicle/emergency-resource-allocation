@@ -850,6 +850,35 @@ type FeedEntry = {
  * with SQL and MongoDB read here, not hard-coded, because seeded expiry bands move
  * at midnight. Scoping is read from the response's own fields.
  */
+/** The seed's own numbers from the dashboard's pipelines. Reads only, so it runs first with testAnalytics. */
+async function testSeedPipelines(my: Connection): Promise<void> {
+  console.log("\nP2.7 Pipeline outputs on the seed");
+  const problem = await analyticsSeedProblem(my);
+  const [[seed]] = await my.query<RowDataPacket[]>(
+    `SELECT DATE(MIN(e.end_time) + INTERVAL 14 DAY) = CURDATE() AS same_day
+       FROM emergency e
+       JOIN emergency_impact ei ON ei.emergency_id = e.emergency_id
+       JOIN location l          ON l.location_id   = ei.location_id
+      WHERE l.grid_id = 'MYS-NR-MOHALLA'`,
+  );
+  // Reports are dated relative to the reset, so the 14-day window moves with the date.
+  if (problem || !seed.same_day) {
+    console.log(`  SKIP  pipeline seed numbers: ${problem ?? "not the seed day"}`);
+    return;
+  }
+
+  const coord = await signIn("coord@eras.test");
+  const data = (await coord("GET", "/api/dashboard")).data;
+  const summary = data?.summary;
+  check("seed: 150 field reports in all", summary?.total === 150, summary?.total);
+  const byType = Object.fromEntries((summary?.byType ?? []).map((t: Row) => [t.type, t.count]));
+  check("seed: 98 flood, 43 landslide, 9 epidemic reports", byType.FLOOD === 98 && byType.LANDSLIDE === 43 && byType.EPIDEMIC === 9, byType);
+  const byTrend = Object.fromEntries((summary?.byTrend ?? []).map((t: Row) => [t.trend ?? "NONE", t.count]));
+  check("seed: trends 68 rising, 53 steady, 29 falling, 0 unreported", byTrend.RISING === 68 && byTrend.STEADY === 53 && byTrend.FALLING === 29 && byTrend.NONE === 0, byTrend);
+  const top = data?.topNeeds?.[0];
+  check("seed: the top need is Drinking water, 51,087 L", top?.item === "Drinking water" && top?.unit === "L" && top?.quantity === 51087, top);
+}
+
 async function testDashboard(my: Connection, db: Db): Promise<void> {
   console.log("\nP2.4 Dashboard");
   const PATH = "/api/dashboard";
@@ -1744,6 +1773,7 @@ async function main(): Promise<void> {
     const db = mongo.db(env.MONGODB_DB);
     await cleanup(my, db);
     try {
+      await testSeedPipelines(my);
       await testAnalytics(my);
       await testDashboard(my, db);
       await testEmergencies(my);
