@@ -1389,6 +1389,9 @@ async function testAdminUsers(my: Connection, db: Db): Promise<void> {
   const off = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { is_active: false });
   check("deactivates -> 200, not deleted", off.status === 200 && off.data?.is_active === false, off);
   check("deactivating ends their session -> 401", (await signedIn.call!("GET", "/api/auth/me")).status === 401);
+  const repeated = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { is_active: false });
+  check("deactivating again changes nothing -> 200", repeated.status === 200 && repeated.data?.is_active === false, repeated);
+  check("and logs only one USER_DEACTIVATED", (await db.collection("activity_log").countDocuments({ action: "USER_DEACTIVATED", "entity.id": field.data?.user_id })) === 1);
   check("a deactivated user can't sign in -> 403", (await loginAttempt(emailOf("field"), FIXTURE_PASSWORD)).status === 403);
   const on = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { is_active: true });
   check("reactivates -> 200", on.status === 200 && on.data?.is_active === true, on);
@@ -1426,7 +1429,7 @@ async function testAdminUsers(my: Connection, db: Db): Promise<void> {
   check("exactly one of them is still an admin", Number(survivors.n) === 1, survivors);
 }
 
-async function testAdminCatalogue(my: Connection): Promise<void> {
+async function testAdminCatalogue(my: Connection, db: Db): Promise<void> {
   console.log("\nP2.6 Resources, centers and locations");
   const admin = await signIn("admin@eras.test");
   const name = (what: string) => `${ZZ_ADMIN}${RUN} ${what}`;
@@ -1485,6 +1488,8 @@ async function testAdminCatalogue(my: Connection): Promise<void> {
 
   const updated = name("alpha renamed");
   check("renames the center", (await admin("PATCH", `/api/admin/centers/${centerA.data?.center_id}`, { name: updated })).status === 200);
+  check("sending the same name changes nothing -> 200", (await admin("PATCH", `/api/admin/centers/${centerA.data?.center_id}`, { name: updated })).status === 200);
+  check("and logs only one CENTER_UPDATED", (await db.collection("activity_log").countDocuments({ action: "CENTER_UPDATED", "entity.id": centerA.data?.center_id })) === 1);
   const managerSession = await loginAttempt(managerEmail, FIXTURE_PASSWORD);
   const managerFeed: Row[] = (await managerSession.call!("GET", "/api/dashboard")).data?.recentActivity ?? [];
   check("a Center Manager's feed shows their center's change", managerFeed.some((e) => e.action === "CENTER_UPDATED" && e.entity_type === "CENTER" && e.payload?.name === updated), managerFeed.slice(0, 3));
@@ -1747,7 +1752,7 @@ async function main(): Promise<void> {
       await testAnalyticsFixtures();
       await testAdminAccess();
       await testAdminUsers(my, db);
-      await testAdminCatalogue(my);
+      await testAdminCatalogue(my, db);
     } finally {
       await cleanup(my, db);
     }

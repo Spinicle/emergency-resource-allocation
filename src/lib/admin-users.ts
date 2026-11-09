@@ -78,8 +78,8 @@ export async function createUser(session: Session, input: CreateUserInput): Prom
 export async function updateUser(session: Session, userId: number, input: UpdateUserInput): Promise<AdminUserRow> {
   const { user, action } = await withTransaction(async (conn) => {
     await lockAndCheckActor(conn, session);
-    const target = await queryOne<{ is_active: 0 | 1; role_name: Role }>(
-      `SELECT u.is_active, r.role_name
+    const target = await queryOne<{ is_active: 0 | 1; role_name: Role; center_id: number | null }>(
+      `SELECT u.is_active, r.role_name, u.center_id
          FROM \`user\` u JOIN role r ON r.role_id = u.role_id
         WHERE u.user_id = ?
           FOR UPDATE OF u`,
@@ -105,6 +105,13 @@ export async function updateUser(session: Session, userId: number, input: Update
       if (Number(others?.n ?? 0) === 0) throw new HttpError(409, "This is the last active admin", { code: "RULE" });
     }
 
+    // Nothing to do, and nothing to record: the activity log only says what happened.
+    const unchanged =
+      input.is_active === undefined
+        ? target.role_name === input.role && target.center_id === (input.center_id ?? null)
+        : (target.is_active === 1) === input.is_active;
+    if (unchanged) return { user: await loadUser(userId, conn), action: null };
+
     if (input.is_active === undefined) {
       await conn.query(
         "UPDATE `user` SET role_id = (SELECT role_id FROM role WHERE role_name = ?), center_id = ? WHERE user_id = ?",
@@ -117,11 +124,13 @@ export async function updateUser(session: Session, userId: number, input: Update
       input.is_active === undefined ? "USER_UPDATED" : input.is_active ? "USER_REACTIVATED" : "USER_DEACTIVATED";
     return { user: await loadUser(userId, conn), action };
   });
-  await logActivity({
-    actor: session,
-    action,
-    entity: { type: "USER", id: user.user_id },
-    payload: { name: user.name, role: user.role, center_id: user.center_id },
-  });
+  if (action) {
+    await logActivity({
+      actor: session,
+      action,
+      entity: { type: "USER", id: user.user_id },
+      payload: { name: user.name, role: user.role, center_id: user.center_id },
+    });
+  }
   return user;
 }

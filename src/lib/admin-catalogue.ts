@@ -44,9 +44,10 @@ export async function createResource(session: Session, input: CreateResourceInpu
 /** Field reports and requests match a resource by name and unit, so both lock once it's used. */
 export async function updateResource(session: Session, id: number, input: UpdateResourceInput): Promise<void> {
   const name = await withTransaction(async (conn) => {
-    const current = await queryOne<{ name: string; unit: string }>("SELECT name, unit FROM resource WHERE resource_id = ? FOR UPDATE", [id], conn);
+    const current = await queryOne<{ name: string; category: string; unit: string }>("SELECT name, category, unit FROM resource WHERE resource_id = ? FOR UPDATE", [id], conn);
     if (!current) throw new HttpError(404, `Resource ${id} not found`);
     const changesIdentity = (input.name !== undefined && input.name !== current.name) || (input.unit !== undefined && input.unit !== current.unit);
+    if (!changesIdentity && (input.category === undefined || input.category === current.category)) return null;
     if (changesIdentity) {
       const used = await queryOne<{ n: number }>(
         `SELECT (SELECT COUNT(*) FROM stock WHERE resource_id = ?) + (SELECT COUNT(*) FROM request_item WHERE resource_id = ?) AS n`,
@@ -63,7 +64,7 @@ export async function updateResource(session: Session, id: number, input: Update
     ]);
     return input.name ?? current.name;
   });
-  await logActivity({ actor: session, action: "RESOURCE_UPDATED", entity: { type: "RESOURCE", id }, payload: { name } });
+  if (name !== null) await logActivity({ actor: session, action: "RESOURCE_UPDATED", entity: { type: "RESOURCE", id }, payload: { name } });
 }
 
 export async function deleteResource(session: Session, id: number): Promise<void> {
@@ -109,8 +110,10 @@ export async function createCenter(session: Session, input: CreateCenterInput): 
 /** Closing or reopening is a plain status change: the trigger and views read the status when they run. */
 export async function updateCenter(session: Session, id: number, input: UpdateCenterInput): Promise<void> {
   const after = await withTransaction(async (conn) => {
-    const current = await queryOne<{ name: string; status: string }>("SELECT name, status FROM resource_center WHERE center_id = ? FOR UPDATE", [id], conn);
+    const current = await queryOne<{ name: string; center_type: string; status: string }>("SELECT name, center_type, status FROM resource_center WHERE center_id = ? FOR UPDATE", [id], conn);
     if (!current) throw new HttpError(404, `Center ${id} not found`);
+    const same = (input.name ?? current.name) === current.name && (input.center_type ?? current.center_type) === current.center_type && (input.status ?? current.status) === current.status;
+    if (same) return null;
     await conn.query("UPDATE resource_center SET name = COALESCE(?, name), center_type = COALESCE(?, center_type), status = COALESCE(?, status) WHERE center_id = ?", [
       input.name ?? null,
       input.center_type ?? null,
@@ -119,7 +122,7 @@ export async function updateCenter(session: Session, id: number, input: UpdateCe
     ]);
     return { name: input.name ?? current.name, status: input.status ?? current.status };
   });
-  await logActivity({ actor: session, action: "CENTER_UPDATED", entity: { type: "CENTER", id }, refs: { center_id: id }, payload: after });
+  if (after) await logActivity({ actor: session, action: "CENTER_UPDATED", entity: { type: "CENTER", id }, refs: { center_id: id }, payload: after });
 }
 
 /**
@@ -171,14 +174,13 @@ export async function updateLocation(session: Session, id: number, input: Update
       (input.grid_id !== undefined && input.grid_id !== current.grid_id) ||
       (input.latitude !== undefined && input.latitude !== current.latitude) ||
       (input.longitude !== undefined && input.longitude !== current.longitude);
-    if (changes) {
-      const used = await queryOne<{ n: number }>(
-        `SELECT (SELECT COUNT(*) FROM resource_center WHERE location_id = ?) + (SELECT COUNT(*) FROM emergency_impact WHERE location_id = ?) AS n`,
-        [id, id],
-        conn,
-      );
-      if (Number(used?.n ?? 0) > 0) throw rule("This location is used by a center or an impact, so it can't change");
-    }
+    if (!changes) return null;
+    const used = await queryOne<{ n: number }>(
+      `SELECT (SELECT COUNT(*) FROM resource_center WHERE location_id = ?) + (SELECT COUNT(*) FROM emergency_impact WHERE location_id = ?) AS n`,
+      [id, id],
+      conn,
+    );
+    if (Number(used?.n ?? 0) > 0) throw rule("This location is used by a center or an impact, so it can't change");
     await conn.query("UPDATE location SET grid_id = COALESCE(?, grid_id), latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude) WHERE location_id = ?", [
       input.grid_id ?? null,
       input.latitude ?? null,
@@ -187,7 +189,7 @@ export async function updateLocation(session: Session, id: number, input: Update
     ]);
     return input.grid_id ?? current.grid_id;
   });
-  await logActivity({ actor: session, action: "LOCATION_UPDATED", entity: { type: "LOCATION", id }, payload: { name: gridId } });
+  if (gridId !== null) await logActivity({ actor: session, action: "LOCATION_UPDATED", entity: { type: "LOCATION", id }, payload: { name: gridId } });
 }
 
 export async function deleteLocation(session: Session, id: number): Promise<void> {
