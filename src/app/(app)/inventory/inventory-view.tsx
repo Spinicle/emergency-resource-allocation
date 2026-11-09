@@ -270,15 +270,9 @@ function CenterInventory({ centerId, isAdmin }: { centerId: number; isAdmin: boo
 
   const refreshBatches = batches.mutate;
   const refreshAllocations = allocations.mutate;
-  const refreshBoth = useMemo(
-    () => () => {
-      void refreshBatches();
-      void refreshAllocations();
-    },
-    [refreshBatches, refreshAllocations],
-  );
   const batchCols = useMemo(() => batchColumns(() => void refreshBatches(), setLedgerBatch), [refreshBatches]);
-  const allocationCols = useMemo(() => allocationColumns(refreshBoth), [refreshBoth]);
+  // Dispatch and deliver don't change stock, so only this list needs a refetch.
+  const allocationCols = useMemo(() => allocationColumns(() => void refreshAllocations()), [refreshAllocations]);
 
   return (
     <>
