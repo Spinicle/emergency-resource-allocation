@@ -7,16 +7,24 @@
  * of a new CRITICAL item, rollback, create and cancel rules, roles, filters.
  * P2.3: the field report seed, the read API, and a report filed for every
  * emergency type then found by emergency, distance and text. P2.4: the dashboard
- * for every role: KPIs, scoping, pipeline shapes and a warm timing check.
+ * for every role: KPIs, scoping, pipeline shapes and a warm timing check. P2.5:
+ * the analytics routes: roles, validation, shapes, seed numbers and the gap's matching.
  *
  *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
  *   3. npm run api:test:p2    (API_BASE_URL if the app isn't on http://localhost:3000)
  *
- * Fixtures use zz_p21_ / zz_p22_ / zz_p23_ / zz_p24_ names and are removed at the end (also after a
+ * npm run api:test:p2 -- --mongo-down starts its own server with an unreachable
+ * MongoDB and checks that only the gap fails. It needs a current npm run build.
+ *
+ * Fixtures use zz_p21_ / zz_p22_ / zz_p23_ / zz_p24_ / zz_p25_ names and are removed at the end (also after a
  * failure, and left-overs from an aborted run at the start), so db:test stays green.
  * Exits 1 if any check fails.
  */
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { createServer } from "node:net";
+import path from "node:path";
 import { type Db, MongoClient } from "mongodb";
 import type { Connection, RowDataPacket } from "mysql2/promise";
 import { seedTime } from "../db/mongo/activity_backfill";
@@ -27,12 +35,13 @@ import { dateToIst, istToDate } from "../src/lib/ist";
 import { appConnection } from "./lib/app-connection";
 import { loadEnv, MONGO_KEYS, MYSQL_APP_KEYS, runScript, ScriptError } from "./lib/script";
 
-const BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
+let BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
 const PASSWORD = "Eras@2026"; // the seeded local-dev password (HANDOFF 4.8)
 const ZZ = "zz_p21_"; // fixture prefix: emergency names and grid ids
 const ZZ_REQ = "zz_p22_"; // P2.2's prefix: those, and request descriptions
 const ZZ_REP = "zz_p23_"; // P2.3's prefix: emergency names and grid ids
 const ZZ_DASH = "zz_p24_"; // P2.4's prefix: emergency names and grid ids
+const ZZ_ANALYTICS = "zz_p25_"; // P2.5's prefix: emergency names and grid ids
 const RUN = Date.now().toString(36); // unique per run, for search terms and grid ids
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1067,10 +1076,282 @@ async function testTopNeedsMerge(): Promise<void> {
   check(`its quantity rose by ${QUANTITY}`, after[0]?.quantity === (before[0]?.quantity ?? NaN) + QUANTITY, { before, after });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = any;
+
+const SEED_FULFILMENT: Record<string, { items: number; item: number; quantity: number }> = {
+  "Bengaluru Urban Flood": { items: 20, item: 50, quantity: 56.42 },
+  "Kodagu Landslide": { items: 15, item: 40, quantity: 45.56 },
+  "Mysuru Dengue Outbreak": { items: 6, item: 66.67, quantity: 75 },
+};
+
+const SEED_GAP: Record<string, { counts: [number, number, number]; observedOnly: string[] }> = {
+  "Bengaluru Urban Flood": { counts: [2, 10, 8], observedOnly: ["Raincoat", "Stretcher"] },
+  "Kodagu Landslide": { counts: [3, 9, 5], observedOnly: ["Raincoat", "Stretcher", "Toor dal"] },
+  "Mysuru Dengue Outbreak": { counts: [1, 5, 1], observedOnly: ["Drinking water"] },
+};
+
+/** Why the seed's exact numbers can't be checked, or null when the database is as db:reset left it. */
+async function analyticsSeedProblem(my: Connection): Promise<string | null> {
+  const [[row]] = await my.query<RowDataPacket[]>(
+    `SELECT (SELECT COUNT(*) FROM resource_request) AS requests,
+            (SELECT COUNT(*) FROM request_item) AS items,
+            (SELECT COUNT(*) FROM allocation) AS allocations,
+            (SELECT COUNT(*) FROM impact_observation) AS observations,
+            (SELECT COUNT(*) FROM emergency WHERE name LIKE 'zz\\_%') AS fixtures`,
+  );
+  const fresh = row.requests === 16 && row.items === 44 && row.allocations === 28 && row.observations === 150 && row.fixtures === 0;
+  return fresh
+    ? null
+    : `not a fresh seed (${row.requests} requests, ${row.items} items, ${row.allocations} allocations, ${row.observations} observations, ${row.fixtures} zz_ emergencies)`;
+}
+
+/** Reads only, so it runs first: the other suites add rows to seeded emergencies. */
+async function testAnalytics(my: Connection): Promise<void> {
+  console.log("\nP2.5 Analytics");
+  const seedProblem = await analyticsSeedProblem(my);
+  const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id, name FROM emergency");
+  const idOf = (name: string): number => emergencies.find((e) => e.name === name)?.emergency_id;
+  const flood = idOf("Bengaluru Urban Flood");
+
+  const admin = await signIn("admin@eras.test");
+  const coord = await signIn("coord@eras.test");
+  const field = await signIn("field1@eras.test");
+  const manager = await signIn("cm.central@eras.test");
+  const anonymous = client();
+  const routes = ["/api/analytics/unmet", "/api/analytics/fulfilment", "/api/analytics/escalating", `/api/analytics/gap?emergency=${flood}`];
+
+  for (const route of routes) {
+    check(`${route}: signed out -> 401`, (await anonymous("GET", route)).status === 401);
+    const refused = [await field("GET", route), await manager("GET", route)];
+    check(`${route}: Field Officer and Center Manager -> 403`, refused.every((r) => r.status === 403 && r.error?.code === "FORBIDDEN"), refused);
+    const allowed = [await admin("GET", route), await coord("GET", route)];
+    check(`${route}: Admin and Coordinator -> 200`, allowed.every((r) => r.status === 200), allowed);
+  }
+
+  check("unmet ?emergency=abc -> 400", (await coord("GET", "/api/analytics/unmet?emergency=abc")).status === 400);
+  const unknownUnmet = await coord("GET", "/api/analytics/unmet?emergency=2147483647");
+  check("unmet for an unknown emergency -> 200 []", unknownUnmet.status === 200 && unknownUnmet.data?.length === 0, unknownUnmet);
+  check("gap without an emergency -> 400", (await coord("GET", "/api/analytics/gap")).status === 400);
+  check("gap ?emergency=abc -> 400", (await coord("GET", "/api/analytics/gap?emergency=abc")).status === 400);
+  check("gap for an unknown emergency -> 404", (await coord("GET", "/api/analytics/gap?emergency=2147483647")).status === 404);
+
+  const unmet: Row[] = (await coord("GET", "/api/analytics/unmet")).data ?? [];
+  const unmetKeys = [
+    "emergency_id", "emergency_name", "emergency_status", "resource_id", "resource_name", "category", "unit",
+    "item_count", "quantity_requested", "quantity_allocated", "quantity_unmet",
+  ];
+  check("unmet rows have every column", unmet.length > 0 && unmet.every((r) => unmetKeys.every((k) => k in r)), unmet[0]);
+  check("unmet never goes below 0", unmet.every((r) => r.quantity_unmet >= 0));
+  check("unmet = requested - allocated on every row", unmet.every((r) => r.quantity_unmet === r.quantity_requested - r.quantity_allocated));
+  check("unmet is ordered biggest first", unmet.every((r, i) => i === 0 || unmet[i - 1].quantity_unmet >= r.quantity_unmet));
+  const narrowed: Row[] = (await coord("GET", `/api/analytics/unmet?emergency=${flood}`)).data ?? [];
+  check("?emergency= keeps only that emergency", narrowed.length > 0 && narrowed.every((r) => r.emergency_id === flood), narrowed[0]);
+
+  const [[live]] = await my.query<RowDataPacket[]>(
+    `SELECT SUM(ri.quantity_allocated) AS allocated
+       FROM request_item ri JOIN resource_request rr ON rr.request_id = ri.request_id
+      WHERE ri.status <> 'CANCELLED' AND rr.status <> 'CANCELLED'`,
+  );
+  const viewAllocated = unmet.reduce((sum, r) => sum + r.quantity_allocated, 0);
+  check("allocated agrees with request_item.quantity_allocated", viewAllocated === Number(live.allocated), { viewAllocated, live });
+
+  const fulfilment: Row[] = (await coord("GET", "/api/analytics/fulfilment")).data ?? [];
+  check("fulfilment has one row per emergency", fulfilment.length === emergencies.length, fulfilment.length);
+
+  const escalating: Row[] = (await coord("GET", "/api/analytics/escalating")).data ?? [];
+  check(
+    "escalating is ordered by severity, then newest",
+    escalating.every((r, i) => {
+      const prev = escalating[i - 1];
+      return !prev || prev.sev_rank > r.sev_rank || (prev.sev_rank === r.sev_rank && prev.observed_at >= r.observed_at);
+    }),
+    escalating,
+  );
+  check("every escalating row got worse", escalating.every((r) => r.sev_rank > r.prev_rank), escalating);
+
+  if (seedProblem) {
+    console.log(`  SKIP  analytics seed numbers: ${seedProblem}`);
+    return;
+  }
+
+  check("seed: unmet has 38 rows, 20 with something unmet", unmet.length === 38 && unmet.filter((r) => r.quantity_unmet > 0).length === 20, unmet.length);
+  const jackets = unmet.filter((r) => r.resource_name === "Life jacket").reduce((sum, r) => sum + r.quantity_unmet, 0);
+  check("seed: 160 life jackets unmet", jackets === 160, jackets);
+
+  for (const [name, want] of Object.entries(SEED_FULFILMENT)) {
+    const row = fulfilment.find((r) => r.emergency_name === name);
+    check(
+      `seed: ${name} fulfilment ${want.item}% of items, ${want.quantity}% by share`,
+      row?.items_total === want.items && row?.item_rate_pct === want.item && row?.quantity_rate_pct === want.quantity,
+      row,
+    );
+  }
+
+  const grids = escalating.map((r) => r.grid_id).sort();
+  check("seed: the four escalating impacts", JSON.stringify(grids) === JSON.stringify(["BLR-BELLANDUR", "BLR-MAHADEVAPURA", "KDG-BHAGAMANDALA", "KDG-MADIKERI"]), grids);
+
+  for (const [name, want] of Object.entries(SEED_GAP)) {
+    const gap = (await coord("GET", `/api/analytics/gap?emergency=${idOf(name)}`)).data;
+    const [observedOnly, both, requestedOnly] = want.counts;
+    check(
+      `seed: ${name} gap is ${observedOnly} observed-only, ${both} both, ${requestedOnly} requested-only`,
+      gap?.counts?.OBSERVED_ONLY === observedOnly && gap?.counts?.BOTH === both && gap?.counts?.REQUESTED_ONLY === requestedOnly,
+      gap?.counts,
+    );
+    const rows: Row[] = gap?.rows ?? [];
+    const named = rows.filter((r) => r.status === "OBSERVED_ONLY").map((r) => r.item).sort();
+    check(`seed: ${name} observed-only needs`, JSON.stringify(named) === JSON.stringify(want.observedOnly), named);
+    check(`seed: ${name} lists observed-only needs first`, rows.slice(0, observedOnly).every((r) => r.status === "OBSERVED_ONLY"), rows.slice(0, 3));
+  }
+}
+
+/** Runs last, like testTopNeedsMerge: it adds an emergency and a report the other suites' counts don't expect. */
+async function testAnalyticsFixtures(): Promise<void> {
+  console.log("\nP2.5 Analytics: an emergency with no requests");
+  const coord = await signIn("coord@eras.test");
+  const created = await coord("POST", "/api/emergencies", { name: `${ZZ_ANALYTICS}${RUN} flood`, type: "FLOOD" });
+  const id = created.data?.emergency_id;
+  check("creates the fixture emergency", created.status === 201, created);
+
+  const fulfilment: Row[] = (await coord("GET", "/api/analytics/fulfilment")).data ?? [];
+  const row = fulfilment.find((r) => r.emergency_id === id);
+  check("no items -> zero counts and NULL rates", row?.items_total === 0 && row?.item_rate_pct === null && row?.quantity_rate_pct === null, row);
+  const noUnmet = await coord("GET", `/api/analytics/unmet?emergency=${id}`);
+  check("no items -> no unmet rows", noUnmet.status === 200 && noUnmet.data?.length === 0, noUnmet);
+  const emptyGap = await coord("GET", `/api/analytics/gap?emergency=${id}`);
+  check("no reports or requests -> an empty gap", emptyGap.status === 200 && emptyGap.data?.rows?.length === 0, emptyGap);
+
+  const impact = await coord("POST", `/api/emergencies/${id}/impacts`, { grid_id: `${ZZ_ANALYTICS}${RUN}-1`, latitude: 12.9, longitude: 77.6 });
+  const filed = await coord("POST", "/api/observations", {
+    impact_id: impact.data?.impact_id,
+    emergency_type: "FLOOD",
+    affected_percentage: 20,
+    severity: "MODERATE",
+    details: { water_level_m: 0.5, roads_submerged: 1 },
+    needs_observed: [
+      { item: "Drinking water", est_qty: 5, unit: "L" },
+      { item: " DRINKING water ", est_qty: 10 },
+      { item: "Drinking water", est_qty: 3, unit: "bottle" },
+      { item: "Sandbags", est_qty: 7, unit: "kg" },
+    ],
+  });
+  check("files a report with mixed spellings and units -> 201", filed.status === 201, filed);
+
+  const gap = (await coord("GET", `/api/analytics/gap?emergency=${id}`)).data;
+  const rows: Row[] = gap?.rows ?? [];
+  check("gap has 3 observed-only rows", gap?.counts?.OBSERVED_ONLY === 3 && rows.length === 3, rows);
+  const water = rows.find((r) => r.item === "Drinking water" && r.unit === "L");
+  check("a need with no unit joins the catalogue unit's row", water?.observed_quantity === 15 && water?.mentions === 2 && !water?.unit_differs, water);
+  const bottles = rows.find((r) => r.unit === "bottle");
+  check("a different unit stays separate and is flagged", bottles?.observed_quantity === 3 && bottles?.unit_differs === true && bottles?.in_catalogue === true, bottles);
+  const sandbags = rows.find((r) => r.item === "Sandbags");
+  check("free text is flagged as not in the catalogue", sandbags?.in_catalogue === false && sandbags?.unit_differs === false, sandbags);
+}
+
+const MONGO_DOWN_PORT = 3101;
+const MONGO_DOWN_READY_MS = 30_000;
+const NEXT_BIN = "node_modules/next/dist/bin/next";
+/** Nothing listens on port 1, so every MongoDB call fails at server selection. */
+const DEAD_MONGODB_URI = "mongodb://127.0.0.1:1";
+
+function newestChange(entry: string): number {
+  const info = statSync(entry);
+  if (!info.isDirectory()) return info.mtimeMs;
+  return Math.max(0, ...readdirSync(entry).map((name) => newestChange(path.join(entry, name))));
+}
+
+function assertCurrentBuild(): void {
+  const buildId = ".next/BUILD_ID";
+  if (!existsSync(buildId)) throw new ScriptError("no production build found. Run npm run build first.");
+  const newest = Math.max(...["src", "db", "package.json"].map(newestChange));
+  if (statSync(buildId).mtimeMs < newest) throw new ScriptError("the production build is older than the code. Run npm run build first.");
+}
+
+/** Binding the port is the only reliable check: a connect can miss a server on another interface. */
+function assertPortFree(port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", () => reject(new ScriptError(`port ${port} is already in use. Stop whatever is on it and rerun.`)));
+    probe.listen(port, () => probe.close(() => resolve()));
+  });
+}
+
+/** Kills the server and its children: on Windows a plain kill leaves the tree running. */
+function stopTree(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    if (process.platform === "win32") execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    else process.kill(pid, "SIGTERM");
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
+ * Checks that only the gap needs MongoDB. Next reads process.env before
+ * .env.local, so the child's MONGODB_URI wins; if it ever didn't, the gap would
+ * answer 200 and the check below would fail.
+ */
+async function testMongoDown(): Promise<void> {
+  assertCurrentBuild();
+  await assertPortFree(MONGO_DOWN_PORT);
+  BASE = `http://localhost:${MONGO_DOWN_PORT}`;
+
+  console.log(`Starting next start on port ${MONGO_DOWN_PORT} with an unreachable MongoDB`);
+  const server = spawn(process.execPath, [NEXT_BIN, "start", "-p", String(MONGO_DOWN_PORT)], {
+    env: { ...process.env, MONGODB_URI: DEAD_MONGODB_URI },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  const keep = (chunk: Buffer) => {
+    output = (output + chunk.toString()).slice(-2000);
+  };
+  server.stdout.on("data", keep);
+  server.stderr.on("data", keep);
+  let exited = false;
+  server.once("exit", () => {
+    exited = true;
+  });
+
+  const onSigint = () => {
+    stopTree(server.pid);
+    process.exit(130);
+  };
+  process.once("SIGINT", onSigint);
+
+  try {
+    const deadline = Date.now() + MONGO_DOWN_READY_MS;
+    for (let ready = false; !ready; ) {
+      if (exited) throw new ScriptError(`next start exited early:\n${output}`);
+      if (Date.now() > deadline) throw new ScriptError(`next start didn't answer within ${MONGO_DOWN_READY_MS / 1000} s:\n${output}`);
+      ready = await fetch(`${BASE}/login`, { redirect: "manual" }).then(
+        () => true,
+        () => false,
+      );
+      if (!ready) await new Promise((r) => setTimeout(r, 300));
+    }
+
+    console.log("\nP2.5 Analytics with MongoDB down");
+    const coord = await signIn("coord@eras.test");
+    const fulfilment = await coord("GET", "/api/analytics/fulfilment");
+    check("fulfilment -> 200", fulfilment.status === 200 && fulfilment.data?.length > 0, fulfilment);
+    const unmet = await coord("GET", "/api/analytics/unmet");
+    check("unmet -> 200", unmet.status === 200, unmet);
+    const escalating = await coord("GET", "/api/analytics/escalating");
+    check("escalating -> 200", escalating.status === 200, escalating);
+    const gap = await coord("GET", `/api/analytics/gap?emergency=${fulfilment.data?.[0]?.emergency_id}`);
+    check("gap -> 503 UNAVAILABLE", gap.status === 503 && gap.error?.code === "UNAVAILABLE", gap);
+  } finally {
+    process.off("SIGINT", onSigint);
+    stopTree(server.pid);
+  }
+}
+
 /** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
 async function cleanup(my: Connection, db: Db): Promise<void> {
   await cleanupRequests(my, db);
-  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP, ZZ_DASH]) {
+  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP, ZZ_DASH, ZZ_ANALYTICS]) {
     const like = `${prefix.replaceAll("_", "\\_")}%`;
     const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id FROM emergency WHERE name LIKE ?", [like]);
     for (const { emergency_id } of emergencies) {
@@ -1091,6 +1372,13 @@ async function cleanup(my: Connection, db: Db): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--mongo-down")) {
+    await testMongoDown();
+    if (failures > 0) throw new ScriptError(`${failures} check(s) failed`);
+    console.log("\napi:test --mongo-down passed");
+    return;
+  }
+
   const env = loadEnv([...MYSQL_APP_KEYS, ...MONGO_KEYS]);
   try {
     await fetch(BASE);
@@ -1103,12 +1391,14 @@ async function main(): Promise<void> {
     const db = mongo.db(env.MONGODB_DB);
     await cleanup(my, db);
     try {
+      await testAnalytics(my);
       await testDashboard(my, db);
       await testEmergencies(my);
       await testRequests(my, db);
       await testReportSeed(my, db);
       await testReports(my, db);
       await testTopNeedsMerge();
+      await testAnalyticsFixtures();
     } finally {
       await cleanup(my, db);
     }
