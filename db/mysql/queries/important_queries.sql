@@ -206,13 +206,18 @@ SELECT e.name AS emergency,
  ORDER BY e.name, r.name;
 
 -- Q8b: Which resources were never requested in any emergency?
--- SQL: NOT EXISTS.
+-- SQL: NOT EXISTS against non-cancelled items, the same rule as Q8.
 -- Expected (fresh seed, reset day): 4 rows
 SELECT r.name AS resource,
        r.category,
        r.unit
   FROM resource r
- WHERE NOT EXISTS (SELECT 1 FROM request_item ri WHERE ri.resource_id = r.resource_id)
+ WHERE NOT EXISTS (SELECT 1
+                     FROM request_item ri
+                     JOIN resource_request rr ON rr.request_id = ri.request_id
+                    WHERE ri.resource_id = r.resource_id
+                      AND ri.status <> 'CANCELLED'
+                      AND rr.status <> 'CANCELLED')
  ORDER BY r.name;
 
 -- Q9a: Search requests by text (natural language mode)
