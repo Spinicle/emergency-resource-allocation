@@ -2,7 +2,7 @@ import "server-only";
 import { ACTIVITY_LOG } from "@db/mongo/activity_log";
 import { FIELD_REPORTS } from "@db/mongo/field_reports";
 import type { Db, Filter } from "mongodb";
-import type { ActivityEntry } from "@/lib/activity";
+import type { ActivityEntityType, ActivityEntry } from "@/lib/activity";
 import type { Session } from "@/lib/auth";
 import {
   ACTIVITY_FEED_LIMIT,
@@ -259,12 +259,16 @@ async function loadSummary(db: Db, includeLatest: boolean): Promise<ReportSummar
 // Activity feed (MongoDB)
 // ---------------------------------------------------------------------------
 
+/** Admin changes, as ADMIN-only as the /admin pages they come from. */
+const ADMIN_ENTITY_TYPES: ActivityEntityType[] = ["USER", "RESOURCE", "CENTER", "LOCATION"];
+
 /**
- * Whose entries this session sees. Each filter has an index ending in ts: -1, so
+ * Whose entries this session sees. The sort walks an index ending in ts: -1, so
  * the feed needs no in-memory sort: a Field Officer's $or is a SORT_MERGE of two.
  */
 async function feedFilter(session: Session, center: number | null): Promise<Filter<ActivityEntry>> {
   if (center !== null) return { "refs.center_id": center };
+  if (session.role === "COORDINATOR") return { "entity.type": { $nin: ADMIN_ENTITY_TYPES } };
   if (session.role !== "FIELD_OFFICER") return {};
 
   const own = await query<{ request_id: number }>("SELECT request_id FROM resource_request WHERE user_id = ?", [session.userId]);

@@ -1496,6 +1496,8 @@ async function testAdminCatalogue(my: Connection, db: Db): Promise<void> {
   check("a Center Manager's feed has only their center", managerFeed.every((e) => e.refs?.center_id === centerA.data?.center_id), managerFeed.slice(0, 3));
   const seededManagerFeed: Row[] = (await (await signIn("cm.central@eras.test"))("GET", "/api/dashboard")).data?.recentActivity ?? [];
   check("another center's manager doesn't see it", seededManagerFeed.every((e) => e.refs?.center_id !== centerA.data?.center_id && !["USER", "RESOURCE", "LOCATION"].includes(e.entity_type)), seededManagerFeed.slice(0, 3));
+  const coordFeed: Row[] = (await (await signIn("coord@eras.test"))("GET", "/api/dashboard")).data?.recentActivity ?? [];
+  check("a Coordinator's feed has no admin entries", coordFeed.length > 0 && coordFeed.every((e) => !["USER", "RESOURCE", "CENTER", "LOCATION"].includes(e.entity_type)), coordFeed.slice(0, 3));
   const adminFeed: Row[] = (await admin("GET", "/api/dashboard")).data?.recentActivity ?? [];
   check("the admin's feed names the changed center", adminFeed.some((e) => e.entity_type === "CENTER" && e.payload?.name === updated), adminFeed.slice(0, 3));
   check("the admin's feed names the new user", adminFeed.some((e) => e.entity_type === "USER" && e.payload?.name === name("alpha manager")), adminFeed.slice(0, 3));
