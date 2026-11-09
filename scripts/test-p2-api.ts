@@ -13,7 +13,7 @@
  *   2. npm run dev            (in a second terminal)
  *   3. npm run api:test:p2    (API_BASE_URL if the app isn't on http://localhost:3000)
  *
- * Fixtures use zz_p21_ / zz_p22_ / zz_p23_ names and are removed at the end (also after a
+ * Fixtures use zz_p21_ / zz_p22_ / zz_p23_ / zz_p24_ names and are removed at the end (also after a
  * failure, and left-overs from an aborted run at the start), so db:test stays green.
  * Exits 1 if any check fails.
  */
@@ -32,6 +32,7 @@ const PASSWORD = "Eras@2026"; // the seeded local-dev password (HANDOFF 4.8)
 const ZZ = "zz_p21_"; // fixture prefix: emergency names and grid ids
 const ZZ_REQ = "zz_p22_"; // P2.2's prefix: those, and request descriptions
 const ZZ_REP = "zz_p23_"; // P2.3's prefix: emergency names and grid ids
+const ZZ_DASH = "zz_p24_"; // P2.4's prefix: emergency names and grid ids
 const RUN = Date.now().toString(36); // unique per run, for search terms and grid ids
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -943,16 +944,18 @@ async function testDashboard(my: Connection, db: Db): Promise<void> {
       { projection: { needs_observed: 1 } },
     )
     .toArray();
+  // The pipeline's key: spellings that differ only in case or outer spaces are one need.
+  const needKey = (item: string, unit?: string | null) => `${item.trim().toLowerCase()}|${unit?.trim().toLowerCase() ?? ""}`;
   const needTotals = new Map<string, number>();
   for (const need of windowDocs.flatMap((d) => d.needs_observed ?? [])) {
-    const key = `${need.item}|${need.unit ?? ""}`;
+    const key = needKey(need.item, need.unit);
     needTotals.set(key, (needTotals.get(key) ?? 0) + (need.est_qty ?? 0));
   }
   const topQuantities = [...needTotals.values()].sort((a, b) => b - a).slice(0, TOP_NEEDS_LIMIT);
   const topNeeds: { item: string; unit: string | null; quantity: number }[] = data.admin.topNeeds;
   check("topNeeds matches a sum by item and unit",
     JSON.stringify(topNeeds.map((n) => n.quantity)) === JSON.stringify(topQuantities) &&
-      topNeeds.every((n) => needTotals.get(`${n.item}|${n.unit ?? ""}`) === n.quantity),
+      topNeeds.every((n) => needTotals.get(needKey(n.item, n.unit)) === n.quantity),
     { got: topNeeds, want: topQuantities });
 
   // Latest reports: everyone who can open them, never a Center Manager
@@ -1029,10 +1032,45 @@ async function testDashboard(my: Connection, db: Db): Promise<void> {
   }
 }
 
+/** Runs last: it files a report, which the other suites' counts don't expect. */
+async function testTopNeedsMerge(): Promise<void> {
+  console.log("\nP2.4 topNeeds merges spellings of one need");
+  const QUANTITY = 123;
+  const coord = await signIn("coord@eras.test");
+  type Need = { item: string; unit: string | null; quantity: number };
+  const waterRows = async (): Promise<Need[]> => {
+    const needs: Need[] = (await coord("GET", "/api/dashboard")).data?.topNeeds ?? [];
+    return needs.filter((n) => n.item.trim().toLowerCase() === "drinking water" && n.unit?.trim().toLowerCase() === "l");
+  };
+
+  const before = await waterRows();
+  check("one Drinking water (L) row before", before.length === 1 && before[0].item === "Drinking water" && before[0].unit === "L", before);
+
+  const created = await coord("POST", "/api/emergencies", { name: `${ZZ_DASH}${RUN} flood`, type: "FLOOD" });
+  const impact = await coord("POST", `/api/emergencies/${created.data?.emergency_id}/impacts`, {
+    grid_id: `${ZZ_DASH}${RUN}-1`,
+    latitude: 12.9,
+    longitude: 77.6,
+  });
+  const filed = await coord("POST", "/api/observations", {
+    impact_id: impact.data?.impact_id,
+    emergency_type: "FLOOD",
+    affected_percentage: 20,
+    severity: "MODERATE",
+    details: { water_level_m: 0.5, roads_submerged: 1 },
+    needs_observed: [{ item: " drinking water ", est_qty: QUANTITY, unit: "L" }],
+  });
+  check('file a report needing " drinking water " in L -> 201', filed.status === 201, filed);
+
+  const after = await waterRows();
+  check("still one row, labelled Drinking water (L)", after.length === 1 && after[0].item === "Drinking water" && after[0].unit === "L", after);
+  check(`its quantity rose by ${QUANTITY}`, after[0]?.quantity === (before[0]?.quantity ?? NaN) + QUANTITY, { before, after });
+}
+
 /** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
 async function cleanup(my: Connection, db: Db): Promise<void> {
   await cleanupRequests(my, db);
-  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP]) {
+  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP, ZZ_DASH]) {
     const like = `${prefix.replaceAll("_", "\\_")}%`;
     const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id FROM emergency WHERE name LIKE ?", [like]);
     for (const { emergency_id } of emergencies) {
@@ -1070,6 +1108,7 @@ async function main(): Promise<void> {
       await testRequests(my, db);
       await testReportSeed(my, db);
       await testReports(my, db);
+      await testTopNeedsMerge();
     } finally {
       await cleanup(my, db);
     }
