@@ -34,11 +34,11 @@ function ExpiryBadge({ batch }: { batch: StockRow }) {
   return <span>{formatIst(batch.expiry_date)}</span>;
 }
 
-function AddBatchDialog({ centerId, isAdmin, resources, onDone }: { centerId: number; isAdmin: boolean; resources: ResourceRow[]; onDone: () => void }) {
+function AddBatchDialog({ centerId, isAdmin, resources, onDone }: { centerId: number; isAdmin: boolean; resources: ResourceRow[] | undefined; onDone: () => void }) {
   return (
     <FormDialog
       trigger={
-        <Button size="sm">
+        <Button size="sm" disabled={!resources}>
           <Plus />
           Add batch
         </Button>
@@ -69,7 +69,7 @@ function AddBatchDialog({ centerId, isAdmin, resources, onDone }: { centerId: nu
                 <SelectValue placeholder="Choose a resource" />
               </SelectTrigger>
               <SelectContent>
-                {resources.map((r) => (
+                {resources?.map((r) => (
                   <SelectItem key={r.resource_id} value={String(r.resource_id)}>
                     {r.name} ({r.unit})
                   </SelectItem>
@@ -286,8 +286,9 @@ function CenterInventory({ centerId, isAdmin }: { centerId: number; isAdmin: boo
           <TabsTrigger value="allocations">Allocations</TabsTrigger>
         </TabsList>
         <TabsContent value="batches" className="flex flex-col gap-3">
+          {resources.error && !resources.data && <InlineError error={resources.error} onRetry={() => void resources.mutate()} />}
           <div className="flex justify-end">
-            <AddBatchDialog centerId={centerId} isAdmin={isAdmin} resources={resources.data ?? []} onDone={() => void refreshBatches()} />
+            <AddBatchDialog centerId={centerId} isAdmin={isAdmin} resources={resources.data} onDone={() => void refreshBatches()} />
           </div>
           {batches.error && !batches.data ? (
             <InlineError error={batches.error} onRetry={() => void refreshBatches()} />
