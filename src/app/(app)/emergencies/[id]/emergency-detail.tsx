@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowLeft, Construction, Lock } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
+import { EmergencyUnmetDemand } from "@/app/(app)/analytics/unmet-table";
 import { emergencyReportColumns } from "@/app/(app)/reports/report-columns";
 import { emergencyRequestColumns } from "@/app/(app)/requests/request-columns";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
@@ -35,9 +36,8 @@ import { EmergencyDialog } from "../emergency-dialog";
 import { humanize } from "../format";
 import { AddImpactDialog } from "./add-impact-dialog";
 
-// /emergencies/[id]: header with edit and close, then tabs. Impacts, the
-// observations timeline, field reports and requests are live; unmet demand
-// arrives with P2.5.
+// /emergencies/[id]: header with edit and close, then tabs. Unmet demand is for
+// ADMIN and COORDINATOR only, like the /api/analytics route it reads.
 
 /** One impact's status: a Select for writers (PATCH /api/impacts/[id]), a badge otherwise. */
 function ImpactStatusCell({ impact, editable, onChanged }: { impact: ImpactRow; editable: boolean; onChanged: () => void }) {
@@ -133,20 +133,6 @@ const observationColumns = obsCol.columns([
   }),
   obsCol.accessor("observed_by", { header: "Observed by" }),
 ]);
-
-function Placeholder({ task, children }: { task: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 text-muted-foreground">
-        <p className="flex items-center gap-2">
-          <Construction className="size-4" />
-          Arrives with {task}.
-        </p>
-        {children}
-      </CardContent>
-    </Card>
-  );
-}
 
 /** The Requests tab. The API limits a Field Officer to their own, like the counts above. */
 function EmergencyRequests({ emergencyId, canEdit }: { emergencyId: number; canEdit: boolean }) {
@@ -340,7 +326,7 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
           <TabsTrigger value="observations">Observations timeline</TabsTrigger>
           <TabsTrigger value="reports">Field reports</TabsTrigger>
           <TabsTrigger value="requests">Requests</TabsTrigger>
-          <TabsTrigger value="unmet">Unmet demand</TabsTrigger>
+          {canEdit && <TabsTrigger value="unmet">Unmet demand</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="impacts" className="flex flex-col gap-3">
@@ -379,11 +365,11 @@ export function EmergencyDetailView({ id, canEdit }: { id: number; canEdit: bool
           <EmergencyRequests emergencyId={emergency.emergency_id} canEdit={canEdit} />
         </TabsContent>
 
-        <TabsContent value="unmet">
-          <Placeholder task="P2.5">
-            <p>Requested vs allocated per resource for this emergency.</p>
-          </Placeholder>
-        </TabsContent>
+        {canEdit && (
+          <TabsContent value="unmet">
+            <EmergencyUnmetDemand emergencyId={emergency.emergency_id} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
