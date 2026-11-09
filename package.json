@@ -16,7 +16,8 @@
     "db:enums": "tsx scripts/check-enums.ts",
     "mongo:test": "tsx scripts/test-mongo.ts",
     "api:test": "tsx scripts/test-api.ts",
-    "api:test:p2": "tsx scripts/test-p2-api.ts"
+    "api:test:p2": "tsx scripts/test-p2-api.ts",
+    "test:t17": "tsx scripts/test-t17.ts"
   },
   "dependencies": {
     "@tanstack/react-table": "^9.3.1",
