@@ -34,7 +34,7 @@ function printResult({ tag, label, rows }: Result): void {
 
 async function runFile(my: Connection): Promise<Result[]> {
   const results: Result[] = [];
-  let pending: TaggedLine[] = [];
+  const pending: TaggedLine[] = [];
   for (const { sql, tags } of splitStatements(readFileSync(FILE, "utf8"))) {
     pending.push(...tags);
     const [outcome] = await my.query(sql);
