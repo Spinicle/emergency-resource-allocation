@@ -151,6 +151,8 @@ async function testEmergencies(my: Connection): Promise<void> {
   ];
   for (const [method, path, body] of writes) {
     check(`Field Officer ${method} ${path} -> 403`, (await field1(method, path, body)).status === 403);
+    check(`Center Manager ${method} ${path} -> 403`, (await manager(method, path, body)).status === 403);
+    check(`signed out ${method} ${path} -> 401`, (await anonymous(method, path, body)).status === 401);
   }
 
   // Request counts: a Field Officer sees only their own requests, a Coordinator all.
