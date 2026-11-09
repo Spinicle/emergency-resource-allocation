@@ -20,14 +20,18 @@ import { MapLegend } from "./map-legend";
 type Kpi = { label: string; value: number | null; hint?: string };
 
 function kpisFor({ role, kpis }: DashboardData): Kpi[] {
-  const openLabel =
-    role === "FIELD_OFFICER" ? "Your open items" : role === "CENTER_MANAGER" ? "Open items you can supply" : "Open request items";
+  const scoped = (own: string, center: string, all: string) => (role === "FIELD_OFFICER" ? own : role === "CENTER_MANAGER" ? center : all);
   const list: Kpi[] = [
     { label: "Active emergencies", value: kpis.active_emergencies },
-    { label: openLabel, value: kpis.open_items },
-    { label: role === "CENTER_MANAGER" ? "Critical items you can supply" : "Critical items", value: kpis.critical_items, hint: "Still to allocate" },
+    { label: scoped("Your open items", "Open items you can supply", "Open request items"), value: kpis.open_items },
+    { label: scoped("Your critical items", "Critical items you can supply", "Critical items"), value: kpis.critical_items, hint: "Still to allocate" },
     { label: "Batches expiring", value: kpis.expiring_batches, hint: "Within 7 days" },
-    { label: "Resources out of stock", value: kpis.out_of_stock, hint: "At a center that stocks them" },
+    {
+      // Everyone else's count has one per resource and center, so one resource can count more than once.
+      label: role === "CENTER_MANAGER" ? "Resources out of stock" : "Out of stock at centers",
+      value: kpis.out_of_stock,
+      hint: role === "CENTER_MANAGER" ? "At your center" : "Resource and center pairs",
+    },
   ];
   // A null is a card this role doesn't get.
   return list.filter((k) => k.value !== null);
