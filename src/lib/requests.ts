@@ -1,9 +1,11 @@
 import "server-only";
+import type { ActivityEntry } from "@/lib/activity";
 import type { Session } from "@/lib/auth";
 import { HttpError } from "@/lib/http";
+import { dateToIst } from "@/lib/ist";
 import { logActivity } from "@/lib/mongo";
 import { queryOne } from "@/lib/mysql";
-import type { RequestHeader } from "@/lib/request-types";
+import type { RequestHeader, TimelineEntry } from "@/lib/request-types";
 
 // Shared by /api/requests/[id] and its cancel route (docs/HANDOFF.md P2.2).
 
@@ -32,6 +34,17 @@ export async function requireRequestAccess(session: Session, id: number): Promis
     throw new HttpError(403, "You don't have access to this");
   }
   return header;
+}
+
+/** An activity_log entry as a timeline shows it. MongoDB holds a UTC instant; the pages show every time as IST wall clock. */
+export function toTimelineEntry(e: ActivityEntry): TimelineEntry {
+  return {
+    ts: dateToIst(e.ts),
+    action: e.action,
+    actor_name: e.actor.name,
+    entity_id: e.entity.id,
+    payload: e.payload ?? null,
+  };
 }
 
 /** One activity_log entry for a request, in the backfill's shape. After the commit; never throws. */

@@ -1,7 +1,6 @@
 import { ACTIVITY_LOG } from "@db/mongo/activity_log";
 import type { ActivityEntry } from "@/lib/activity";
 import { handle, ok } from "@/lib/http";
-import { dateToIst } from "@/lib/ist";
 import { getDb } from "@/lib/mongo";
 import { query } from "@/lib/mysql";
 import { requireRole } from "@/lib/rbac";
@@ -12,7 +11,7 @@ import {
   TIMELINE_LIMIT,
   type TimelineEntry,
 } from "@/lib/request-types";
-import { requireRequestAccess } from "@/lib/requests";
+import { requireRequestAccess, toTimelineEntry } from "@/lib/requests";
 import { requestIdParams } from "@/lib/validators/requests";
 
 // GET /api/requests/[id] -> RequestDetail (docs/HANDOFF.md P2.2)
@@ -34,14 +33,7 @@ async function loadTimeline(requestId: number): Promise<{ timeline: TimelineEntr
   ]);
   return {
     timeline_total,
-    timeline: entries.map((e) => ({
-      // MongoDB holds a UTC instant; the page shows every time as IST wall clock.
-      ts: dateToIst(e.ts),
-      action: e.action,
-      actor_name: e.actor.name,
-      entity_id: e.entity.id,
-      payload: e.payload ?? null,
-    })),
+    timeline: entries.map(toTimelineEntry),
   };
 }
 

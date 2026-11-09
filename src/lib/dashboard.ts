@@ -25,6 +25,7 @@ import { getDb } from "@/lib/mongo";
 import { query, queryOne } from "@/lib/mysql";
 import type { Trend } from "@/lib/report-types";
 import { type ListDoc, LIST_FIELDS, loadObservationInfo, toRow } from "@/lib/reports";
+import { toTimelineEntry } from "@/lib/requests";
 import { centerScope } from "@/lib/stock";
 import { TRENDS } from "@/lib/validators/observations";
 
@@ -280,15 +281,10 @@ async function loadRecentActivity(db: Db, session: Session, center: number | nul
   const filter = await feedFilter(session, center);
   const entries = await db.collection<ActivityEntry>(ACTIVITY_LOG).find(filter).sort({ ts: -1 }).limit(ACTIVITY_FEED_LIMIT).toArray();
   return entries.map((e) => ({
-    // MongoDB holds a UTC instant; the page shows every time as IST wall clock.
-    ts: dateToIst(e.ts),
-    action: e.action,
-    actor_name: e.actor.name,
+    ...toTimelineEntry(e),
     actor_user_id: e.actor.user_id,
     entity_type: e.entity.type,
-    entity_id: e.entity.id,
     refs: e.refs ?? null,
-    payload: e.payload ?? null,
   }));
 }
 
