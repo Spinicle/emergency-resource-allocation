@@ -120,7 +120,9 @@ function columns(units: string[], onDone: () => void) {
 export function ResourcesView() {
   const list = useApi<AdminResourceRow[]>("/api/admin/resources");
   const refresh = list.mutate;
-  const units = useMemo(() => [...new Set((list.data ?? []).map((r) => r.unit))].sort(), [list.data]);
+  // Keyed on the text, so a refetch with the same units keeps the columns, and any open edit dialog with them.
+  const unitKey = [...new Set((list.data ?? []).map((r) => r.unit))].sort().join("\n");
+  const units = useMemo(() => (unitKey ? unitKey.split("\n") : []), [unitKey]);
   const cols = useMemo(() => columns(units, () => void refresh()), [units, refresh]);
 
   if (list.error && !list.data) return <InlineError error={list.error} onRetry={() => void refresh()} />;
