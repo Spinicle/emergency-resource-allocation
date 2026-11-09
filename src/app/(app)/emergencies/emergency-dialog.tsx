@@ -28,7 +28,7 @@ import { humanize, toDateTimeInput } from "./format";
 /** Statuses the edit form offers. Closing is its own action (with a confirmation) on the detail page. */
 const EDIT_STATUSES = ["ACTIVE", "CONTAINED"] as const;
 
-function ChoiceSelect({
+export function ChoiceSelect({
   id,
   name,
   defaultValue,
