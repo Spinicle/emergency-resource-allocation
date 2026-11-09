@@ -26,11 +26,12 @@ const REQUESTS = 8_000;
 const RESOURCES = 25; // 8,000 x 25 = 200,000 items, each pair once for uq_request_resource
 const ITEMS = REQUESTS * RESOURCES;
 
-const COLUMNS = "request_item_id, request_id, resource_id, quantity_requested";
 /** The query the task names: equality on both index columns, so an Index lookup. */
-const LOOKUP_SQL = `SELECT ${COLUMNS} FROM request_item WHERE status = 'PENDING' AND urgency = 'CRITICAL'`;
+const LOOKUP_EXPLAIN =
+  "EXPLAIN ANALYZE SELECT request_item_id, request_id, resource_id, quantity_requested FROM request_item WHERE status = 'PENDING' AND urgency = 'CRITICAL'";
 /** Two urgencies: the same index read as an Index range scan. */
-const RANGE_SQL = `SELECT ${COLUMNS} FROM request_item WHERE status = 'PENDING' AND urgency IN ('HIGH', 'CRITICAL')`;
+const RANGE_EXPLAIN =
+  "EXPLAIN ANALYZE SELECT request_item_id, request_id, resource_id, quantity_requested FROM request_item WHERE status = 'PENDING' AND urgency IN ('HIGH', 'CRITICAL')";
 
 const TABLE_SCAN = /Table scan on request_item/;
 const INDEX_LOOKUP = new RegExp(`Index lookup on request_item using ${INDEX}`);
@@ -122,35 +123,32 @@ async function printDistribution(admin: Connection, loadMs: number): Promise<voi
   console.table(rows.map((r) => ({ status: r.status, urgency: r.urgency, items: Number(r.items), share: r.share })));
 }
 
-async function explainAnalyze(admin: Connection, sql: string): Promise<string> {
-  const [rows] = await admin.query<RowDataPacket[]>(`EXPLAIN ANALYZE ${sql}`);
-  return String(Object.values(rows[0])[0]);
-}
-
-function printPlan(title: string, sql: string, plan: string): void {
-  console.log(`\n--- ${title}\n${sql}\n${plan}`);
+/** Runs one of the fixed EXPLAIN statements above, prints its plan and returns it. */
+async function explainAnalyze(admin: Connection, title: string, statement: string): Promise<string> {
+  const [rows] = await admin.query<RowDataPacket[]>(statement);
+  const plan = String(Object.values(rows[0])[0]);
+  console.log(`\n--- ${title}\n${statement.replace("EXPLAIN ANALYZE ", "")}\n${plan}`);
+  return plan;
 }
 
 type Plans = { lookup: string; range: string };
 
 async function runPlans(admin: Connection, when: string): Promise<Plans> {
   await assertConnectedToBench(admin);
-  const lookup = await explainAnalyze(admin, LOOKUP_SQL);
-  printPlan(`${when}: PENDING + CRITICAL`, LOOKUP_SQL, lookup);
-  const range = await explainAnalyze(admin, RANGE_SQL);
-  printPlan(`${when}: PENDING + HIGH or CRITICAL`, RANGE_SQL, range);
+  const lookup = await explainAnalyze(admin, `${when}: PENDING + CRITICAL`, LOOKUP_EXPLAIN);
+  const range = await explainAnalyze(admin, `${when}: PENDING + HIGH or CRITICAL`, RANGE_EXPLAIN);
   return { lookup, range };
 }
 
 /** Without the index, then the recreate: in a finally, so a failed run can't leave it dropped. */
 async function runWithoutIndex(admin: Connection): Promise<Plans> {
   await assertConnectedToBench(admin);
-  await admin.query(`DROP INDEX ${INDEX} ON request_item`);
+  await admin.query("DROP INDEX ?? ON request_item", [INDEX]);
   console.log(`\nDropped ${INDEX}`);
   try {
     return await runPlans(admin, "Without the index");
   } finally {
-    await admin.query(`CREATE INDEX ${INDEX} ON request_item (status, urgency)`);
+    await admin.query("CREATE INDEX ?? ON request_item (status, urgency)", [INDEX]);
     console.log(`\nRecreated ${INDEX}`);
   }
 }
