@@ -148,9 +148,10 @@ const gapConfig = {
 } satisfies ChartConfig;
 
 /**
- * How often reports mention each need. Mentions rather than quantities because
- * they're comparable across units. One series per status, stacked, so the legend
- * follows the status; each row has a value in only one of them.
+ * How many need entries name each need; a report listing a need twice counts
+ * twice. Entries rather than quantities because they're comparable across units.
+ * One series per status, stacked, so the legend follows the status; each row has
+ * a value in only one of them.
  */
 export function GapChart({ rows }: { rows: GapRow[] }) {
   const top = rows
