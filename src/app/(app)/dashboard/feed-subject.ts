@@ -6,6 +6,8 @@ import type { DashboardActivityEntry } from "@/lib/dashboard-types";
 
 /** What an entry is about: "Request 12", "Batch MDK-GEN-01", "Field report 1043 (FLOOD)". */
 export function feedSubject({ entity_type, entity_id, payload }: DashboardActivityEntry): string {
+  /** The admin entries carry their label in payload.name. */
+  const named = (label: string) => `${label} ${typeof payload?.name === "string" ? payload.name : entity_id}`;
   switch (entity_type) {
     case "REQUEST":
       return `Request ${entity_id}`;
@@ -22,13 +24,13 @@ export function feedSubject({ entity_type, entity_id, payload }: DashboardActivi
     case "IMPACT":
       return `Impact ${entity_id}`;
     case "USER":
-      return `User ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+      return named("User");
     case "RESOURCE":
-      return `Resource ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+      return named("Resource");
     case "CENTER":
-      return `Center ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+      return named("Center");
     case "LOCATION":
-      return `Location ${typeof payload?.name === "string" ? payload.name : entity_id}`;
+      return named("Location");
     default: {
       const unhandled: never = entity_type;
       return unhandled;
