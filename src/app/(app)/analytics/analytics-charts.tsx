@@ -43,13 +43,18 @@ const unmetConfig = { share: { label: "Share unmet (%)", color: "var(--chart-1)"
 export function UnmetChart({ rows }: { rows: UnmetRow[] }) {
   const top = rows
     .filter((r) => r.emergency_status !== "CLOSED" && r.quantity_unmet > 0)
-    .map((r) => ({
-      label: `${r.resource_name}, ${r.emergency_name}`,
-      share: Math.round((r.quantity_unmet / r.quantity_requested) * 100),
-      missing: `${formatQty(r.quantity_unmet)} ${r.unit}`,
-      quantity: r.quantity_unmet,
-    }))
-    .sort((a, b) => b.share - a.share || b.quantity - a.quantity || a.label.localeCompare(b.label))
+    .map((r) => {
+      const exactShare = r.quantity_unmet / r.quantity_requested;
+      return {
+        label: `${r.resource_name}, ${r.emergency_name}`,
+        exactShare,
+        // Two decimals for the tooltip; a small shortfall must not round away to no bar.
+        share: Math.round(exactShare * 10000) / 100,
+        missing: `${formatQty(r.quantity_unmet)} ${r.unit}`,
+        quantity: r.quantity_unmet,
+      };
+    })
+    .sort((a, b) => b.exactShare - a.exactShare || b.quantity - a.quantity || a.label.localeCompare(b.label))
     .slice(0, TOP_UNMET);
   if (top.length === 0) return <NoData>No open emergency has unmet demand.</NoData>;
 
