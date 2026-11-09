@@ -113,7 +113,8 @@ const severityName = (rank: unknown) => SEVERITIES[Number(rank) - 1] ?? "";
 
 export function EscalatingChart({ rows }: { rows: EscalatingRow[] }) {
   if (rows.length === 0) return <NoData>No impact got worse at its latest observation.</NoData>;
-  const data = rows.map((r) => ({ label: r.grid_id, previous: r.prev_rank, latest: r.sev_rank }));
+  // With the emergency: one location can be impacted by more than one.
+  const data = rows.map((r) => ({ label: `${r.grid_id}, ${r.emergency}`, previous: r.prev_rank, latest: r.sev_rank }));
 
   return (
     <ChartContainer config={escalatingConfig} className="aspect-auto w-full" style={height(data.length * 2)}>
@@ -127,7 +128,7 @@ export function EscalatingChart({ rows }: { rows: EscalatingRow[] }) {
           tickLine={false}
           axisLine={false}
         />
-        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={150} interval={0} />
+        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={260} interval={0} />
         <ChartTooltip content={<ChartTooltipContent hideIndicator={false} formatter={(value, name) => `${escalatingConfig[name as keyof typeof escalatingConfig]?.label}: ${severityName(value)}`} />} />
         <ChartLegend content={<ChartLegendContent />} />
         <Bar dataKey="previous" fill="var(--color-previous)" radius={BAR_RADIUS}>
