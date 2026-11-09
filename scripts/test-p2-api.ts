@@ -9,6 +9,7 @@
  * emergency type then found by emergency, distance and text. P2.4: the dashboard
  * for every role: KPIs, scoping, pipeline shapes and a warm timing check. P2.5:
  * the analytics routes: roles, validation, shapes, seed numbers and the gap's matching.
+ * P2.6: admin and inventory roles, T03, the user rules, edit locks and the feeds.
  *
  *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
@@ -42,6 +43,7 @@ const ZZ_REQ = "zz_p22_"; // P2.2's prefix: those, and request descriptions
 const ZZ_REP = "zz_p23_"; // P2.3's prefix: emergency names and grid ids
 const ZZ_DASH = "zz_p24_"; // P2.4's prefix: emergency names and grid ids
 const ZZ_ANALYTICS = "zz_p25_"; // P2.5's prefix: emergency names and grid ids
+const ZZ_ADMIN = "zz_p26_"; // P2.6's prefix: user, resource, center, batch and emergency names, emails, grid ids
 const RUN = Date.now().toString(36); // unique per run, for search terms and grid ids
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1282,6 +1284,289 @@ async function testAnalyticsFixtures(): Promise<void> {
   );
 }
 
+/** A login that may be refused: its status, and the session's client when it worked. */
+async function loginAttempt(email: string, password: string): Promise<{ status: number; cookie?: string; call?: Call }> {
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const cookie = res.headers.get("set-cookie")?.split(";")[0];
+  return { status: res.status, cookie, call: cookie ? client(cookie) : undefined };
+}
+
+/** A page's status and redirect target, without following it. */
+async function pageResponse(path: string, cookie?: string): Promise<{ status: number; location: string }> {
+  const res = await fetch(`${BASE}${path}`, { redirect: "manual", headers: cookie ? { Cookie: cookie } : {} });
+  return { status: res.status, location: res.headers.get("location") ?? "" };
+}
+
+const ADMIN_PAGES = ["/admin/users", "/admin/resources", "/admin/centers", "/admin/locations"];
+const FIXTURE_PASSWORD = "Fixture@2026";
+const MAX_INT = 2147483647;
+
+async function testAdminAccess(): Promise<void> {
+  console.log("\nP2.6 Admin access");
+  const routes: [string, string][] = [
+    ["GET", "/api/admin/users"],
+    ["POST", "/api/admin/users"],
+    ["PATCH", "/api/admin/users/1"],
+  ];
+  for (const name of ["resources", "centers", "locations"]) {
+    routes.push(["GET", `/api/admin/${name}`], ["POST", `/api/admin/${name}`], ["PATCH", `/api/admin/${name}/1`], ["DELETE", `/api/admin/${name}/1`]);
+  }
+  const anonymous = client();
+  const refused = [["COORDINATOR", "coord@eras.test"], ["FIELD_OFFICER", "field1@eras.test"], ["CENTER_MANAGER", "cm.central@eras.test"]];
+  const sessions = await Promise.all(refused.map(async ([role, email]) => ({ role, email, login: await loginAttempt(email, PASSWORD) })));
+
+  for (const [method, path] of routes) {
+    check(`${method} ${path}: signed out -> 401`, (await anonymous(method, path, method === "GET" ? undefined : {})).status === 401);
+    for (const { role, login } of sessions) {
+      const res = await login.call!(method, path, method === "GET" ? undefined : {});
+      check(`${method} ${path}: ${role} -> 403`, res.status === 403 && res.error?.code === "FORBIDDEN", res);
+    }
+  }
+
+  const admin = await loginAttempt("admin@eras.test", PASSWORD);
+  for (const page of ADMIN_PAGES) {
+    const out = await pageResponse(page);
+    check(`${page}: signed out -> /login`, out.status === 307 && out.location.includes("/login"), out);
+    for (const { role, login } of sessions) {
+      const res = await pageResponse(page, login.cookie);
+      check(`${page}: ${role} -> /dashboard`, res.status === 307 && res.location.endsWith("/dashboard"), res);
+    }
+    check(`${page}: Admin -> 200`, (await pageResponse(page, admin.cookie)).status === 200);
+  }
+
+  for (const { role, login } of sessions) {
+    const res = await pageResponse("/inventory", login.cookie);
+    if (role === "CENTER_MANAGER") check("/inventory: Center Manager -> 200", res.status === 200, res);
+    else check(`/inventory: ${role} -> /dashboard`, res.status === 307 && res.location.endsWith("/dashboard"), res);
+  }
+  check("/inventory: Admin -> 200", (await pageResponse("/inventory", admin.cookie)).status === 200);
+}
+
+async function testAdminUsers(my: Connection, db: Db): Promise<void> {
+  console.log("\nP2.6 Users");
+  const admin = await signIn("admin@eras.test");
+  const [[kushalnagar]] = await my.query<RowDataPacket[]>("SELECT center_id FROM resource_center WHERE name = 'Kushalnagar Relief Camp'");
+  const emailOf = (who: string) => `${ZZ_ADMIN}${RUN}_${who}@eras.test`;
+  const create = (who: string, role: string, center_id?: number) =>
+    admin("POST", "/api/admin/users", { name: `${ZZ_ADMIN}${RUN} ${who}`, email: emailOf(who), password: FIXTURE_PASSWORD, role, center_id });
+
+  const list: Row[] = (await admin("GET", "/api/admin/users")).data ?? [];
+  check("the list never includes a password hash", list.length > 0 && list.every((u) => !("password_hash" in u)), list[0]);
+
+  const field = await create("field", "FIELD_OFFICER");
+  check("creates a user -> 201, no hash in the response", field.status === 201 && !("password_hash" in (field.data ?? {})) && field.data?.is_active === true, field);
+  const entry = await db.collection("activity_log").findOne({ action: "USER_CREATED", "entity.id": field.data?.user_id });
+  check("USER_CREATED is logged with no password", !!entry && !/password|Fixture/i.test(JSON.stringify({ payload: entry.payload })), entry);
+
+  const duplicate = await admin("POST", "/api/admin/users", { name: "x", email: emailOf("field").toUpperCase(), password: FIXTURE_PASSWORD, role: "FIELD_OFFICER" });
+  check("a duplicate email in any case -> 409 DUPLICATE", duplicate.status === 409 && duplicate.error?.code === "DUPLICATE", duplicate);
+
+  const bad = (extra: object) => admin("POST", "/api/admin/users", { name: "x", email: emailOf("bad"), password: FIXTURE_PASSWORD, role: "FIELD_OFFICER", ...extra });
+  const longPassword = await bad({ password: "é".repeat(37) });
+  check("a password over 72 bytes -> 400", longPassword.status === 400 && !!longPassword.error?.fields?.password, longPassword);
+  const shortPassword = await bad({ password: "short" });
+  check("a password under 8 characters -> 400", shortPassword.status === 400 && !!shortPassword.error?.fields?.password, shortPassword);
+  const noCenter = await bad({ role: "CENTER_MANAGER" });
+  check("a Center Manager without a center -> 400", noCenter.status === 400 && !!noCenter.error?.fields?.center_id, noCenter);
+  const stray = await bad({ role: "COORDINATOR", center_id: kushalnagar.center_id });
+  check("any other role with a center -> 400", stray.status === 400 && !!stray.error?.fields?.center_id, stray);
+  const missing = await bad({ role: "CENTER_MANAGER", center_id: MAX_INT });
+  check("an unknown center -> 409", missing.status === 409 && missing.error?.code === "MISSING_REFERENCE", missing);
+
+  const both = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { role: "COORDINATOR", is_active: false });
+  check("role and active together -> 400", both.status === 400, both);
+  const centerOnly = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { center_id: kushalnagar.center_id });
+  check("a center without a role -> 400", centerOnly.status === 400, centerOnly);
+  check("an unknown user -> 404", (await admin("PATCH", `/api/admin/users/${MAX_INT}`, { is_active: false })).status === 404);
+
+  const signedIn = await loginAttempt(emailOf("field"), FIXTURE_PASSWORD);
+  check("the new user can sign in", signedIn.status === 200 && !!signedIn.call, signedIn.status);
+  check("their session works", (await signedIn.call!("GET", "/api/auth/me")).status === 200);
+  const off = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { is_active: false });
+  check("deactivates -> 200, not deleted", off.status === 200 && off.data?.is_active === false, off);
+  check("deactivating ends their session -> 401", (await signedIn.call!("GET", "/api/auth/me")).status === 401);
+  check("a deactivated user can't sign in -> 403", (await loginAttempt(emailOf("field"), FIXTURE_PASSWORD)).status === 403);
+  const on = await admin("PATCH", `/api/admin/users/${field.data?.user_id}`, { is_active: true });
+  check("reactivates -> 200", on.status === 200 && on.data?.is_active === true, on);
+  check("a reactivated user can sign in again", (await loginAttempt(emailOf("field"), FIXTURE_PASSWORD)).status === 200);
+
+  const manager = await create("manager", "CENTER_MANAGER", kushalnagar.center_id);
+  check("creates a Center Manager with a center", manager.status === 201 && manager.data?.center_name === "Kushalnagar Relief Camp", manager);
+  const managerLogin = await loginAttempt(emailOf("manager"), FIXTURE_PASSWORD);
+  const demoted = await admin("PATCH", `/api/admin/users/${manager.data?.user_id}`, { role: "COORDINATOR", center_id: null });
+  check("a role change clears the center", demoted.status === 200 && demoted.data?.role === "COORDINATOR" && demoted.data?.center_id === null, demoted);
+  check("a role change ends their session -> 401", (await managerLogin.call!("GET", "/api/auth/me")).status === 401);
+
+  // Self-changes. The last-admin count can't be reached through the API: the
+  // actor is another active admin, so the race below is what the lock guards.
+  const [[seeded]] = await my.query<RowDataPacket[]>("SELECT user_id FROM `user` WHERE email = 'admin@eras.test'");
+  const selfDemote = await admin("PATCH", `/api/admin/users/${seeded.user_id}`, { role: "COORDINATOR", center_id: null });
+  check("an admin can't demote themselves -> 409", selfDemote.status === 409 && selfDemote.error?.code === "RULE", selfDemote);
+  const selfOff = await admin("PATCH", `/api/admin/users/${seeded.user_id}`, { is_active: false });
+  check("an admin can't deactivate themselves -> 409", selfOff.status === 409 && selfOff.error?.code === "RULE", selfOff);
+
+  const a = await create("admin_a", "ADMIN");
+  const b = await create("admin_b", "ADMIN");
+  const [sessionA, sessionB] = await Promise.all([loginAttempt(emailOf("admin_a"), FIXTURE_PASSWORD), loginAttempt(emailOf("admin_b"), FIXTURE_PASSWORD)]);
+  const demote = { role: "COORDINATOR", center_id: null };
+  const results = await Promise.all([
+    sessionA.call!("PATCH", `/api/admin/users/${b.data?.user_id}`, demote),
+    sessionB.call!("PATCH", `/api/admin/users/${a.data?.user_id}`, demote),
+  ]);
+  const statuses = results.map((r) => r.status).sort();
+  check("two admins demoting each other: exactly one succeeds", statuses[0] === 200 && (statuses[1] === 401 || statuses[1] === 403), statuses);
+  const [[survivors]] = await my.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM `user` u JOIN role r ON r.role_id = u.role_id WHERE r.role_name = 'ADMIN' AND u.user_id IN (?, ?)",
+    [a.data?.user_id, b.data?.user_id],
+  );
+  check("exactly one of them is still an admin", Number(survivors.n) === 1, survivors);
+}
+
+async function testAdminCatalogue(my: Connection): Promise<void> {
+  console.log("\nP2.6 Resources, centers and locations");
+  const admin = await signIn("admin@eras.test");
+  const name = (what: string) => `${ZZ_ADMIN}${RUN} ${what}`;
+  const idOf = async (sql: string): Promise<number> => (await my.query<RowDataPacket[]>(sql))[0][0].id;
+
+  // T03: a referenced row can't be deleted, and era_app's 1217 reaches the user as 409 IN_USE.
+  const rice = await idOf("SELECT resource_id AS id FROM resource WHERE name = 'Rice'");
+  const kushalnagar = await idOf("SELECT center_id AS id FROM resource_center WHERE name = 'Kushalnagar Relief Camp'");
+  const peenya = await idOf("SELECT location_id AS id FROM location WHERE grid_id = 'BLR-PEENYA'");
+  for (const [label, path] of [["resource with stock", `resources/${rice}`], ["center with stock", `centers/${kushalnagar}`], ["location with a center", `locations/${peenya}`]]) {
+    const res = await admin("DELETE", `/api/admin/${path}`);
+    check(`T03: deleting a ${label} -> 409 IN_USE`, res.status === 409 && res.error?.code === "IN_USE" && /still referenced/.test(res.error?.message ?? ""), res);
+  }
+  const [[kept]] = await my.query<RowDataPacket[]>("SELECT (SELECT COUNT(*) FROM resource WHERE resource_id = ?) + (SELECT COUNT(*) FROM resource_center WHERE center_id = ?) + (SELECT COUNT(*) FROM location WHERE location_id = ?) AS n", [rice, kushalnagar, peenya]);
+  check("T03: all three rows are still there", Number(kept.n) === 3, kept);
+  for (const what of ["resources", "centers", "locations"]) {
+    check(`deleting an unknown row in ${what} -> 404`, (await admin("DELETE", `/api/admin/${what}/${MAX_INT}`)).status === 404);
+  }
+
+  // Resources
+  const resource = await admin("POST", "/api/admin/resources", { name: name("rope"), category: "RESCUE", unit: "coil" });
+  check("creates a resource -> 201", resource.status === 201, resource);
+  const resourceId = resource.data?.resource_id;
+  check("a duplicate resource name -> 409", (await admin("POST", "/api/admin/resources", { name: "Rice", category: "FOOD", unit: "kg" })).error?.code === "DUPLICATE");
+  check("a bad category -> 400", (await admin("POST", "/api/admin/resources", { name: name("x"), category: "NOPE", unit: "kg" })).status === 400);
+  const renamed = await admin("PATCH", `/api/admin/resources/${resourceId}`, { name: name("cord"), unit: "reel" });
+  check("an unused resource can be renamed", renamed.status === 200, renamed);
+
+  // Centers and locations
+  const locationA = await admin("POST", "/api/admin/locations", { grid_id: `${ZZ_ADMIN}${RUN}-A`, latitude: 12.5, longitude: 77.5 });
+  const locationB = await admin("POST", "/api/admin/locations", { grid_id: `${ZZ_ADMIN}${RUN}-B`, latitude: 12.6, longitude: 77.6 });
+  check("creates locations -> 201", locationA.status === 201 && locationB.status === 201, locationA);
+  check("a duplicate grid id -> 409", (await admin("POST", "/api/admin/locations", { grid_id: "BLR-PEENYA", latitude: 1, longitude: 1 })).error?.code === "DUPLICATE");
+  check("an out-of-range latitude -> 400", (await admin("POST", "/api/admin/locations", { grid_id: name("bad"), latitude: 91, longitude: 1 })).status === 400);
+  check("an unused location can move", (await admin("PATCH", `/api/admin/locations/${locationA.data?.location_id}`, { latitude: 12.55 })).status === 200);
+
+  const centerOf = (what: string, location_id: number) => admin("POST", "/api/admin/centers", { name: name(what), center_type: "DEPOT", status: "OPERATIONAL", location_id });
+  const centerA = await centerOf("alpha", locationA.data?.location_id);
+  const centerB = await centerOf("bravo", locationB.data?.location_id);
+  check("creates centers -> 201", centerA.status === 201 && centerB.status === 201, centerA);
+  check("a center on an unknown location -> 409", (await centerOf("none", MAX_INT)).error?.code === "MISSING_REFERENCE");
+  check("a bad center status -> 400", (await admin("PATCH", `/api/admin/centers/${centerA.data?.center_id}`, { status: "NOPE" })).status === 400);
+  check("a center's location can't be edited -> 400", (await admin("PATCH", `/api/admin/centers/${centerA.data?.center_id}`, { location_id: peenya })).status === 400);
+
+  const lockedLocation = await admin("PATCH", `/api/admin/locations/${locationA.data?.location_id}`, { latitude: 12.7 });
+  check("a used location's coordinates are locked -> 409", lockedLocation.status === 409 && lockedLocation.error?.code === "RULE", lockedLocation);
+  check("a used location's grid id is locked -> 409", (await admin("PATCH", `/api/admin/locations/${locationA.data?.location_id}`, { grid_id: name("moved") })).status === 409);
+  check("deleting a used location -> 409 IN_USE", (await admin("DELETE", `/api/admin/locations/${locationA.data?.location_id}`)).error?.code === "IN_USE");
+
+  // A center with a manager, and the feed each role sees.
+  const managerEmail = `${ZZ_ADMIN}${RUN}_alpha@eras.test`;
+  const fixtureManager = await admin("POST", "/api/admin/users", { name: name("alpha manager"), email: managerEmail, password: FIXTURE_PASSWORD, role: "CENTER_MANAGER", center_id: centerA.data?.center_id });
+  check("assigns a manager to the center", fixtureManager.status === 201, fixtureManager);
+  const blocked = await admin("DELETE", `/api/admin/centers/${centerA.data?.center_id}`);
+  check("a center with a manager can't be deleted -> 409", blocked.status === 409 && blocked.error?.code === "RULE", blocked);
+
+  const updated = name("alpha renamed");
+  check("renames the center", (await admin("PATCH", `/api/admin/centers/${centerA.data?.center_id}`, { name: updated })).status === 200);
+  const managerSession = await loginAttempt(managerEmail, FIXTURE_PASSWORD);
+  const managerFeed: Row[] = (await managerSession.call!("GET", "/api/dashboard")).data?.recentActivity ?? [];
+  check("a Center Manager's feed shows their center's change", managerFeed.some((e) => e.action === "CENTER_UPDATED" && e.entity_type === "CENTER" && e.payload?.name === updated), managerFeed.slice(0, 3));
+  check("a Center Manager's feed has only their center", managerFeed.every((e) => e.refs?.center_id === centerA.data?.center_id), managerFeed.slice(0, 3));
+  const seededManagerFeed: Row[] = (await (await signIn("cm.central@eras.test"))("GET", "/api/dashboard")).data?.recentActivity ?? [];
+  check("another center's manager doesn't see it", seededManagerFeed.every((e) => e.refs?.center_id !== centerA.data?.center_id && !["USER", "RESOURCE", "LOCATION"].includes(e.entity_type)), seededManagerFeed.slice(0, 3));
+  const adminFeed: Row[] = (await admin("GET", "/api/dashboard")).data?.recentActivity ?? [];
+  check("the admin's feed names the changed center", adminFeed.some((e) => e.entity_type === "CENTER" && e.payload?.name === updated), adminFeed.slice(0, 3));
+  check("the admin's feed names the new user", adminFeed.some((e) => e.entity_type === "USER" && e.payload?.name === name("alpha manager")), adminFeed.slice(0, 3));
+
+  check("moves the manager off the center", (await admin("PATCH", `/api/admin/users/${fixtureManager.data?.user_id}`, { role: "COORDINATOR", center_id: null })).status === 200);
+  check("an empty center can be deleted", (await admin("DELETE", `/api/admin/centers/${centerA.data?.center_id}`)).status === 200);
+  check("then its location can too", (await admin("DELETE", `/api/admin/locations/${locationA.data?.location_id}`)).status === 200);
+
+  // Closing and reopening
+  const bravo = centerB.data?.center_id;
+  check("closes a center", (await admin("PATCH", `/api/admin/centers/${bravo}`, { status: "CLOSED" })).status === 200);
+  const refused = await admin("POST", "/api/stock", { resource_id: resourceId, center_id: bravo, batch_code: `${ZZ_ADMIN}${RUN}-closed`, quantity: 1 });
+  check("a CLOSED center refuses stock -> 409 RULE", refused.status === 409 && refused.error?.code === "RULE", refused);
+  check("reopens the center", (await admin("PATCH", `/api/admin/centers/${bravo}`, { status: "OPERATIONAL" })).status === 200);
+
+  // Inventory: Admin on a center with no manager, a Center Manager on their own only.
+  const coord = await signIn("coord@eras.test");
+  const manager = await signIn("cm.central@eras.test");
+  const madikeri = await idOf("SELECT center_id AS id FROM resource_center WHERE name = 'Madikeri Relief Depot'");
+  const central = await idOf("SELECT center_id AS id FROM resource_center WHERE name = 'Bengaluru Central Warehouse'");
+
+  const adminBatch = await admin("POST", "/api/stock", { resource_id: resourceId, center_id: bravo, batch_code: `${ZZ_ADMIN}${RUN}-admin`, quantity: 10 });
+  check("Admin receives at a center with no manager", adminBatch.status === 201, adminBatch);
+  const managerBatch = await manager("POST", "/api/stock", { resource_id: resourceId, batch_code: `${ZZ_ADMIN}${RUN}-cm`, quantity: 10 });
+  check("a Center Manager receives at their own center", managerBatch.status === 201 && managerBatch.data?.batch?.center_id === central, managerBatch);
+  const adminStock = adminBatch.data?.batch?.stock_id;
+  const managerStock = managerBatch.data?.batch?.stock_id;
+
+  check("Admin adjusts there", (await admin("POST", `/api/stock/${adminStock}/adjust`, { delta: 1, reason: "ADJUSTMENT" })).status === 200);
+  check("a Center Manager adjusts their own", (await manager("POST", `/api/stock/${managerStock}/adjust`, { delta: 1, reason: "ADJUSTMENT" })).status === 200);
+  const ledger: Row[] = (await manager("GET", `/api/stock/${managerStock}/ledger`)).data ?? [];
+  check("a Center Manager reads their ledger", ledger.length === 2 && ledger[1].balance_after === 11, ledger);
+  check("a Center Manager can't touch another center's batch -> 403", (await manager("POST", `/api/stock/${adminStock}/adjust`, { delta: 1, reason: "ADJUSTMENT" })).status === 403);
+  check("or read its ledger -> 403", (await manager("GET", `/api/stock/${adminStock}/ledger`)).status === 403);
+  check("or list another center's stock -> 403", (await manager("GET", `/api/stock?center=${madikeri}`)).status === 403);
+  check("or its allocations -> 403", (await manager("GET", `/api/stock/allocations?center=${madikeri}`)).status === 403);
+  check("or receive there -> 403", (await manager("POST", "/api/stock", { resource_id: resourceId, center_id: madikeri, batch_code: `${ZZ_ADMIN}${RUN}-no`, quantity: 1 })).status === 403);
+  const own: Row[] = (await manager("GET", "/api/stock")).data ?? [];
+  check("a Center Manager's list is their center only", own.length > 0 && own.every((s) => s.center_id === central), own[0]);
+  check("Admin reads a center with no manager", ((await admin("GET", `/api/stock?center=${kushalnagar}`)).data ?? []).length > 0);
+
+  // The name and unit lock, now the resource has stock.
+  const lockedName = await admin("PATCH", `/api/admin/resources/${resourceId}`, { name: name("again") });
+  check("a used resource's name is locked -> 409", lockedName.status === 409 && lockedName.error?.code === "RULE", lockedName);
+  check("a used resource's unit is locked -> 409", (await admin("PATCH", `/api/admin/resources/${resourceId}`, { unit: "kg" })).status === 409);
+  check("a used resource's category stays editable", (await admin("PATCH", `/api/admin/resources/${resourceId}`, { category: "OTHER" })).status === 200);
+  check("deleting a used resource -> 409 IN_USE", (await admin("DELETE", `/api/admin/resources/${resourceId}`)).error?.code === "IN_USE");
+
+  // Dispatch and deliver, on an allocation from each batch.
+  const emergency = await coord("POST", "/api/emergencies", { name: name("flood"), type: "FLOOD" });
+  const impact = await coord("POST", `/api/emergencies/${emergency.data?.emergency_id}/impacts`, { grid_id: `${ZZ_ADMIN}${RUN}-I`, latitude: 12.8, longitude: 77.8 });
+  const description = `${ZZ_REQ}${RUN} admin allocation`;
+  const request = await coord("POST", "/api/requests", { impact_id: impact.data?.impact_id, description, items: [{ resource_id: resourceId, quantity_requested: 5, urgency: "LOW" }] });
+  check("files a fixture request", request.status === 201, request);
+  const [[item]] = await my.query<RowDataPacket[]>(
+    "SELECT ri.request_item_id FROM request_item ri JOIN resource_request rr ON rr.request_id = ri.request_id WHERE rr.description = ?",
+    [description],
+  );
+  const allocated = await coord("POST", "/api/allocations", {
+    request_item_id: item.request_item_id,
+    batches: [{ stock_id: adminStock, quantity: 2 }, { stock_id: managerStock, quantity: 2 }],
+  });
+  check("allocates from both batches", allocated.status === 201 && allocated.data?.allocations?.length === 2, allocated);
+  const allocationOf = (stock: number): number => allocated.data?.allocations?.find((x: Row) => x.stock_id === stock)?.allocation_id;
+
+  const managerAllocations: Row[] = (await manager("GET", "/api/stock/allocations")).data ?? [];
+  check("a Center Manager lists their center's allocations only", managerAllocations.some((x) => x.allocation_id === allocationOf(managerStock)) && managerAllocations.every((x) => x.center_id === central));
+  check("a Center Manager can't dispatch another center's -> 403", (await manager("POST", `/api/stock/allocations/${allocationOf(adminStock)}/dispatch`)).status === 403);
+  check("a Center Manager dispatches their own", (await manager("POST", `/api/stock/allocations/${allocationOf(managerStock)}/dispatch`)).data?.allocation?.status === "DISPATCHED");
+  check("then delivers it", (await manager("POST", `/api/stock/allocations/${allocationOf(managerStock)}/deliver`)).data?.allocation?.status === "DELIVERED");
+  check("Admin dispatches at a center with no manager", (await admin("POST", `/api/stock/allocations/${allocationOf(adminStock)}/dispatch`)).data?.allocation?.status === "DISPATCHED");
+  check("then delivers it", (await admin("POST", `/api/stock/allocations/${allocationOf(adminStock)}/deliver`)).data?.allocation?.status === "DELIVERED");
+  const again = await admin("POST", `/api/stock/allocations/${allocationOf(adminStock)}/dispatch`);
+  check("a wrong transition is a 409 with the trigger's message", again.status === 409 && again.error?.code === "RULE" && /already|can't go/.test(again.error?.message ?? ""), again);
+}
+
 const MONGO_DOWN_PORT = 3101;
 const MONGO_DOWN_READY_MS = 30_000;
 const NEXT_BIN = "node_modules/next/dist/bin/next";
@@ -1381,10 +1666,38 @@ async function testMongoDown(): Promise<void> {
   }
 }
 
+const adminLike = () => `${ZZ_ADMIN.replaceAll("_", "\\_")}%`;
+
+/** P2.6's fixture batches, with their allocations and ledger rows: before the requests that allocations point at. */
+async function cleanupAdminStock(my: Connection, db: Db): Promise<void> {
+  const [rows] = await my.query<RowDataPacket[]>("SELECT stock_id FROM stock WHERE batch_code LIKE ?", [adminLike()]);
+  const ids = rows.map((r) => r.stock_id as number);
+  // Test fixtures only: activity_log is otherwise never deleted from.
+  await db.collection("activity_log").deleteMany({ "payload.batch_code": new RegExp(`^${ZZ_ADMIN}`) });
+  if (ids.length === 0) return;
+  await my.query("DELETE FROM stock_ledger WHERE stock_id IN (?)", [ids]);
+  await my.query("DELETE FROM allocation WHERE stock_id IN (?)", [ids]);
+  await my.query("DELETE FROM stock WHERE stock_id IN (?)", [ids]);
+}
+
+/** P2.6's fixture users, centers and resources; their locations go with the other fixtures'. */
+async function cleanupAdminRows(my: Connection, db: Db): Promise<void> {
+  const like = adminLike();
+  await db.collection("activity_log").deleteMany({
+    "entity.type": { $in: ["USER", "RESOURCE", "CENTER", "LOCATION"] },
+    "payload.name": new RegExp(`^${ZZ_ADMIN}`),
+  });
+  await my.query("DELETE FROM `user` WHERE email LIKE ?", [like]);
+  await my.query("DELETE FROM resource_center WHERE name LIKE ?", [like]);
+  await my.query("DELETE FROM resource WHERE name LIKE ?", [like]);
+}
+
 /** Removes every fixture emergency with its impacts, observations, reports and entries, and fixture locations. */
 async function cleanup(my: Connection, db: Db): Promise<void> {
+  await cleanupAdminStock(my, db);
   await cleanupRequests(my, db);
-  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP, ZZ_DASH, ZZ_ANALYTICS]) {
+  await cleanupAdminRows(my, db);
+  for (const prefix of [ZZ, ZZ_REQ, ZZ_REP, ZZ_DASH, ZZ_ANALYTICS, ZZ_ADMIN]) {
     const like = `${prefix.replaceAll("_", "\\_")}%`;
     const [emergencies] = await my.query<RowDataPacket[]>("SELECT emergency_id FROM emergency WHERE name LIKE ?", [like]);
     for (const { emergency_id } of emergencies) {
@@ -1432,6 +1745,9 @@ async function main(): Promise<void> {
       await testReports(my, db);
       await testTopNeedsMerge();
       await testAnalyticsFixtures();
+      await testAdminAccess();
+      await testAdminUsers(my, db);
+      await testAdminCatalogue(my);
     } finally {
       await cleanup(my, db);
     }
