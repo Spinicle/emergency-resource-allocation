@@ -74,7 +74,7 @@ function columns(onDone: () => void) {
                   await api(`/api/admin/locations/${location.location_id}`, { method: "PATCH", body: JSON.stringify(body) });
                 }}
               >
-                {(fields) => <LocationPicker mode="admin" editing={location} errors={fields} />}
+                {(fields) => <LocationPicker editing={location} errors={fields} />}
               </FormDialog>
             )}
             <ConfirmAction
@@ -121,7 +121,7 @@ export function LocationsView() {
             });
           }}
         >
-          {(fields) => <LocationPicker mode="admin" errors={fields} />}
+          {(fields) => <LocationPicker errors={fields} />}
         </FormDialog>
       </div>
       <DataTable

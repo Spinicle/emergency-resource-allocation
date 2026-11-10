@@ -24,17 +24,17 @@ export function nearest<T>(places: readonly T[], at: (place: T) => LatLng, point
 export const GRID_ID_MAX = 50;
 
 /** Uppercase, with every run of spaces and punctuation as one hyphen, none at the ends: "hsr layout, 2" -> "HSR-LAYOUT-2". */
-export function gridPart(text: string): string {
+function gridPart(text: string): string {
   return text
     .toUpperCase()
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 }
 
-/** A grid id's prefix, the part before its first hyphen ("KDG-MADIKERI" -> "KDG"); null without one. */
-export function gridPrefix(gridId: string): string | null {
+/** A grid id's prefix (before its first hyphen; null without one) and area: "KDG-MADIKERI" -> KDG, MADIKERI. */
+export function splitGridId(gridId: string): { prefix: string | null; area: string } {
   const cut = gridId.indexOf("-");
-  return cut > 0 ? gridId.slice(0, cut) : null;
+  return cut > 0 ? { prefix: gridId.slice(0, cut), area: gridId.slice(cut + 1) } : { prefix: null, area: gridId };
 }
 
 /** <PREFIX>-<AREA>, at most GRID_ID_MAX characters; either part may be blank. */

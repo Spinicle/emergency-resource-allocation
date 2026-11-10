@@ -80,7 +80,7 @@ export function AddImpactDialog({ emergencyId, onAdded }: { emergencyId: number;
           <DialogDescription>Search the existing grid ids or pick a point on the map. An existing location keeps its saved coordinates.</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-          <LocationPicker mode="impact" errors={fields} />
+          <LocationPicker canUseExisting errors={fields} />
           <DialogFooter>
             <Button type="submit" disabled={pending}>
               {pending ? "Adding…" : "Add impact"}
