@@ -2,8 +2,10 @@
 
 import "leaflet/dist/leaflet.css";
 import { type DivIcon, divIcon } from "leaflet";
+import { cn } from "cn";
 import { useEffect } from "react";
 import { CircleMarker, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { BASEMAP_CHOICES, BASEMAPS, type BasemapChoice, setBasemapChoice, useBasemapChoice, usePrefersDark } from "./basemap";
 import type { ErasMapProps, MapPoint } from "./map-types";
 
 // The Leaflet map itself. Leaflet needs `window`, so only ./index.tsx may import
@@ -75,37 +77,70 @@ function ClickHandler({ onMapClick }: { onMapClick: NonNullable<ErasMapProps["on
   return null;
 }
 
-export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoints = true, onMapClick, height = "24rem" }: ErasMapProps) {
+const CHOICE_LABELS: Record<BasemapChoice, string> = { auto: "Auto", light: "Light", dark: "Dark", street: "Street" };
+
+/** Auto / Light / Dark / Street, over the map's top-right corner (zoom is top-left, credits bottom-right). */
+function BasemapSwitch({ choice }: { choice: BasemapChoice }) {
   return (
-    <MapContainer center={[center.lat, center.lng]} zoom={zoom} style={{ height, width: "100%" }} className="rounded-md border">
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {fitPoints && <FitToPoints points={points} />}
-      {onMapClick && <ClickHandler onMapClick={onMapClick} />}
-      {points.map((p) =>
-        p.shape === "square" ? (
-          <Marker
-            key={p.id}
-            position={[p.lat, p.lng]}
-            icon={squareIcon(p.color)}
-            eventHandlers={p.onClick ? { click: p.onClick } : undefined}
-          >
-            <Tooltip>{p.label}</Tooltip>
-          </Marker>
-        ) : (
-          <CircleMarker
-            key={p.id}
-            center={[p.lat, p.lng]}
-            radius={p.radius ?? 7}
-            pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }}
-            eventHandlers={p.onClick ? { click: p.onClick } : undefined}
-          >
-            <Tooltip>{p.label}</Tooltip>
-          </CircleMarker>
-        ),
-      )}
-    </MapContainer>
+    <div
+      role="group"
+      aria-label="Map style"
+      className="absolute top-2 right-2 z-[1000] flex gap-0.5 rounded-md border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur-sm"
+    >
+      {BASEMAP_CHOICES.map((c) => (
+        <button
+          key={c}
+          type="button"
+          aria-pressed={choice === c}
+          onClick={() => setBasemapChoice(c)}
+          className={cn(
+            "rounded-sm px-2 py-1 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            choice === c ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          {CHOICE_LABELS[c]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoints = true, onMapClick, height = "24rem" }: ErasMapProps) {
+  const choice = useBasemapChoice();
+  const dark = usePrefersDark();
+  const basemap = choice === "auto" ? (dark ? "dark" : "light") : choice;
+  const tiles = BASEMAPS[basemap];
+  return (
+    <div className="relative">
+      <BasemapSwitch choice={choice} />
+      <MapContainer center={[center.lat, center.lng]} zoom={zoom} style={{ height, width: "100%" }} className="rounded-md border">
+        {/* The key swaps the layer whole: react-leaflet doesn't update attribution in place. */}
+        <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} subdomains={tiles.subdomains} maxZoom={tiles.maxZoom} />
+        {fitPoints && <FitToPoints points={points} />}
+        {onMapClick && <ClickHandler onMapClick={onMapClick} />}
+        {points.map((p) =>
+          p.shape === "square" ? (
+            <Marker
+              key={p.id}
+              position={[p.lat, p.lng]}
+              icon={squareIcon(p.color)}
+              eventHandlers={p.onClick ? { click: p.onClick } : undefined}
+            >
+              <Tooltip>{p.label}</Tooltip>
+            </Marker>
+          ) : (
+            <CircleMarker
+              key={p.id}
+              center={[p.lat, p.lng]}
+              radius={p.radius ?? 7}
+              pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }}
+              eventHandlers={p.onClick ? { click: p.onClick } : undefined}
+            >
+              <Tooltip>{p.label}</Tooltip>
+            </CircleMarker>
+          ),
+        )}
+      </MapContainer>
+    </div>
   );
 }
