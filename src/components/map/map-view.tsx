@@ -77,7 +77,11 @@ function useResolvedColors(points: readonly MapPoint[], dark: boolean): Map<stri
   }, [points, dark]);
 }
 
-/** Zooms to the points whenever the set of points changes, or only when fitKey does. */
+/**
+ * Zooms to the points whenever the set of points changes, or only when fitKey
+ * does. The top padding keeps points clear of the zoom buttons and the basemap
+ * switch, the bottom padding clear of the credits.
+ */
 function FitToPoints({ points, fitKey }: { points: readonly MapPoint[]; fitKey?: string }) {
   const map = useMap();
   const ids = fitKey ?? points.map((p) => p.id).join("|");
@@ -85,7 +89,7 @@ function FitToPoints({ points, fitKey }: { points: readonly MapPoint[]; fitKey?:
     if (points.length > 0) {
       map.fitBounds(
         points.map((p) => [p.lat, p.lng] as [number, number]),
-        { padding: [24, 24], maxZoom: 14 },
+        { paddingTopLeft: [24, 56], paddingBottomRight: [24, 32], maxZoom: 14 },
       );
     }
     // ids stands for points: a new array with the same reports shouldn't move the view.
