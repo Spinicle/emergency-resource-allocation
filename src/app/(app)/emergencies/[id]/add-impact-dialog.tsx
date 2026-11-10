@@ -3,7 +3,7 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { FormField } from "@/components/form-field";
+import { LocationPicker } from "@/components/location-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +14,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import type { FieldErrors } from "@/lib/api-contract";
 import { api, ApiError } from "@/lib/client";
 import type { ImpactCreated } from "@/lib/emergency-types";
@@ -75,25 +74,13 @@ export function AddImpactDialog({ emergencyId, onAdded }: { emergencyId: number;
           Add impact
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add an impacted location</DialogTitle>
-          <DialogDescription>
-            If the grid id already exists, its saved coordinates are used instead of the ones entered here.
-          </DialogDescription>
+          <DialogDescription>Search the existing grid ids or pick a point on the map. An existing location keeps its saved coordinates.</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-          <FormField htmlFor="grid_id" label="Grid id" error={fields.grid_id}>
-            <Input id="grid_id" name="grid_id" placeholder="BLR-HSR-LAYOUT" aria-invalid={!!fields.grid_id} autoFocus />
-          </FormField>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormField htmlFor="latitude" label="Latitude" error={fields.latitude}>
-              <Input id="latitude" name="latitude" type="number" step="any" placeholder="12.9121" aria-invalid={!!fields.latitude} />
-            </FormField>
-            <FormField htmlFor="longitude" label="Longitude" error={fields.longitude}>
-              <Input id="longitude" name="longitude" type="number" step="any" placeholder="77.6446" aria-invalid={!!fields.longitude} />
-            </FormField>
-          </div>
+          <LocationPicker mode="impact" errors={fields} />
           <DialogFooter>
             <Button type="submit" disabled={pending}>
               {pending ? "Adding…" : "Add impact"}
