@@ -82,38 +82,38 @@ function ImpactMap({ data }: { data: DashboardData }) {
   );
 }
 
-function CountRow({ label, count }: { label: string; count: number }) {
+type Count = { key: string; label: string; count: number };
+
+/** A labelled group of counts. Zero rows are left out. */
+function CountGroup({ title, rows }: { title: string; rows: Count[] }) {
+  const shown = rows.filter((r) => r.count > 0);
   return (
-    <li className="flex justify-between gap-3">
-      <span>{label}</span>
-      <span className="tabular-nums text-muted-foreground">{formatQty(count)}</span>
-    </li>
+    <section>
+      <h3 className="border-b pb-1.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">{title}</h3>
+      {shown.length === 0 ? (
+        <p className="pt-2 text-muted-foreground">No field reports yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5 pt-2">
+          {shown.map((r) => (
+            <li key={r.key} className="flex justify-between gap-3 text-foreground">
+              <span>{r.label}</span>
+              <span className="font-medium tabular-nums">{formatQty(r.count)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
 function ReportCounts({ summary }: { summary: DashboardData["summary"] }) {
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="mb-1 font-medium">By type</h3>
-        {summary.byType.length === 0 ? (
-          <p className="text-muted-foreground">No field reports yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {summary.byType.map((t) => (
-              <CountRow key={t.type} label={humanize(t.type)} count={t.count} />
-            ))}
-          </ul>
-        )}
-      </div>
-      <div>
-        <h3 className="mb-1 font-medium">By trend</h3>
-        <ul className="flex flex-col gap-1">
-          {summary.byTrend.map((t) => (
-            <CountRow key={t.trend ?? "none"} label={t.trend ? humanize(t.trend) : "Not reported"} count={t.count} />
-          ))}
-        </ul>
-      </div>
+    <div className="flex flex-col gap-6">
+      <CountGroup title="By type" rows={summary.byType.map((t) => ({ key: t.type, label: humanize(t.type), count: t.count }))} />
+      <CountGroup
+        title="By trend"
+        rows={summary.byTrend.map((t) => ({ key: t.trend ?? "none", label: t.trend ? humanize(t.trend) : "Not reported", count: t.count }))}
+      />
     </div>
   );
 }
