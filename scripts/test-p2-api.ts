@@ -10,6 +10,7 @@
  * for every role: KPIs, scoping, pipeline shapes and a warm timing check. P2.5:
  * the analytics routes: roles, validation, shapes, seed numbers and the gap's matching.
  * P2.6: admin and inventory roles, T03, the user rules, edit locks and the feeds.
+ * GET /api/locations (the location picker): roles and its rows.
  *
  *   1. npm run db:reset       (the rank check expects the seeded queue)
  *   2. npm run dev            (in a second terminal)
@@ -1375,6 +1376,24 @@ async function testAdminAccess(): Promise<void> {
   check("/inventory: Admin -> 200", (await pageResponse("/inventory", admin.cookie)).status === 200);
 }
 
+/** GET /api/locations: ADMIN and COORDINATOR read every location, by grid id, with only the picker's fields. */
+async function testLocations(my: Connection): Promise<void> {
+  console.log("\nLocation picker: GET /api/locations");
+  const PATH = "/api/locations";
+  check("signed out -> 401", (await client()("GET", PATH)).status === 401);
+  for (const email of ["field1@eras.test", "cm.central@eras.test"]) {
+    const res = await (await signIn(email))("GET", PATH);
+    check(`${email} -> 403`, res.status === 403 && res.error?.code === "FORBIDDEN", res);
+  }
+  const [rows] = await my.query<RowDataPacket[]>("SELECT location_id, grid_id, latitude, longitude FROM location ORDER BY grid_id");
+  const want = JSON.stringify(rows.map((r) => ({ location_id: r.location_id, grid_id: r.grid_id, latitude: r.latitude, longitude: r.longitude })));
+  for (const email of ["admin@eras.test", "coord@eras.test"]) {
+    const res = await (await signIn(email))("GET", PATH);
+    check(`${email} -> 200`, res.status === 200 && Array.isArray(res.data), res);
+    check(`${email}: every location, by grid id, only location_id, grid_id, latitude, longitude`, JSON.stringify(res.data) === want, res.data);
+  }
+}
+
 async function testAdminUsers(my: Connection, db: Db): Promise<void> {
   console.log("\nP2.6 Users");
   const admin = await signIn("admin@eras.test");
@@ -1783,6 +1802,7 @@ async function main(): Promise<void> {
       await testTopNeedsMerge();
       await testAnalyticsFixtures();
       await testAdminAccess();
+      await testLocations(my);
       await testAdminUsers(my, db);
       await testAdminCatalogue(my, db);
     } finally {
