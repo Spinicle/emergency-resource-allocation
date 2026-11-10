@@ -30,6 +30,7 @@ export function FormDialog({
   savedMessage,
   submit,
   onDone,
+  className,
   children,
 }: {
   trigger: React.ReactNode;
@@ -39,6 +40,8 @@ export function FormDialog({
   submit: (read: ReadField) => Promise<boolean | void>;
   /** Refetch after a save or a refusal, since a 409 usually means the row changed. */
   onDone: () => void;
+  /** For the dialog's box, e.g. a wider max-width. */
+  className?: string;
   children: (fields: FieldErrors) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -75,7 +78,7 @@ export function FormDialog({
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent className={className}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}

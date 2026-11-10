@@ -10,11 +10,11 @@ export function distanceKm(a: LatLng, b: LatLng): number {
   return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** The closest of `places` to `point` within maxKm, with its distance; null if none is that close. */
-export function nearest<T extends LatLng>(places: readonly T[], point: LatLng, maxKm: number): { place: T; km: number } | null {
+/** The closest of `places` (positioned by `at`) to `point` within maxKm, with its distance; null if none is that close. */
+export function nearest<T>(places: readonly T[], at: (place: T) => LatLng, point: LatLng, maxKm: number): { place: T; km: number } | null {
   let best: { place: T; km: number } | null = null;
   for (const place of places) {
-    const km = distanceKm(place, point);
+    const km = distanceKm(at(place), point);
     if (km <= maxKm && (!best || km < best.km)) best = { place, km };
   }
   return best;
