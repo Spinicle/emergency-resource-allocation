@@ -36,15 +36,16 @@ export type AdminCenterRow = {
   user_count: number;
 };
 
-/** GET /api/locations: one location for the location picker. */
-export type LocationRow = Pick<AdminLocationRow, "location_id" | "grid_id" | "latitude" | "longitude">;
-
-/** One location. Once center_count or impact_count is above 0, its grid id and coordinates are locked. */
-export type AdminLocationRow = {
+/** GET /api/locations (ADMIN and COORDINATOR): one location for the location picker. */
+export type LocationRow = {
   location_id: number;
   grid_id: string;
   latitude: number;
   longitude: number;
+};
+
+/** One location in the admin list. Once center_count or impact_count is above 0, its grid id and coordinates are locked. */
+export type AdminLocationRow = LocationRow & {
   center_count: number;
   impact_count: number;
 };
