@@ -10,13 +10,21 @@ export type BasemapChoice = (typeof BASEMAP_CHOICES)[number];
 export type Basemap = Exclude<BasemapChoice, "auto">;
 
 const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const CARTO = `${OSM} &copy; <a href="https://carto.com/attributions">CARTO</a>`;
+const STADIA = `&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> ${OSM}`;
 
-/** {r} is "@2x" on high-density screens; {s} picks one of the subdomains. */
-export const BASEMAPS: Record<Basemap, { url: string; attribution: string; subdomains: string; maxZoom: number }> = {
-  light: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", attribution: CARTO, subdomains: "abcd", maxZoom: 20 },
-  dark: { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", attribution: CARTO, subdomains: "abcd", maxZoom: 20 },
-  street: { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: OSM, subdomains: "abc", maxZoom: 19 },
+// Light and Dark are Stadia's Alidade Smooth styles (CARTO's keyless tiles now
+// only return an "API key required" image). Stadia serves localhost without a
+// key; any other host needs NEXT_PUBLIC_STADIA_API_KEY from .env.local, which
+// ends up in the browser bundle, as Stadia's browser keys are meant to.
+const STADIA_KEY = process.env.NEXT_PUBLIC_STADIA_API_KEY?.trim();
+const stadia = (style: string) =>
+  `https://tiles.stadiamaps.com/tiles/${style}/{z}/{x}/{y}{r}.png${STADIA_KEY ? `?api_key=${encodeURIComponent(STADIA_KEY)}` : ""}`;
+
+/** {r} is "@2x" on high-density screens. */
+export const BASEMAPS: Record<Basemap, { url: string; attribution: string; maxZoom: number }> = {
+  light: { url: stadia("alidade_smooth"), attribution: STADIA, maxZoom: 20 },
+  dark: { url: stadia("alidade_smooth_dark"), attribution: STADIA, maxZoom: 20 },
+  street: { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: OSM, maxZoom: 19 },
 };
 
 const STORAGE_KEY = "eras.map.basemap";

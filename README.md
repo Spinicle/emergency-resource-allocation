@@ -69,6 +69,7 @@ Fill in `.env.local`:
 | `MYSQL_ADMIN_USER`, `MYSQL_ADMIN_PASSWORD` | An admin account such as `root`, used only by the scripts |
 | `MONGODB_URI`, `MONGODB_DB` | `mongodb://127.0.0.1:27017` and `eras` |
 | `JWT_SECRET` | 64 hex characters: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `NEXT_PUBLIC_STADIA_API_KEY` | Optional. The Light and Dark map tiles (Stadia Maps) need no key on localhost; set one to serve the app from any other host |
 
 With MySQL and MongoDB running, build the databases and start the app:
 

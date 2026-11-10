@@ -200,7 +200,7 @@ export default function MapView({
       <BasemapSwitch choice={choice} />
       <MapContainer center={[center.lat, center.lng]} zoom={zoom} style={{ height, width: "100%" }} className="rounded-md border">
         {/* The key swaps the layer whole: react-leaflet doesn't update attribution in place. */}
-        <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} subdomains={tiles.subdomains} maxZoom={tiles.maxZoom} />
+        <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} maxZoom={tiles.maxZoom} />
         {fitPoints && <FitToPoints points={points} fitKey={fitKey} />}
         {/* After FitToPoints, so a focus given from the start wins over the first fit. */}
         {focus && <FocusOn focus={focus} />}
