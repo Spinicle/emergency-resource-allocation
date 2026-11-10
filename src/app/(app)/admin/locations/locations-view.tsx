@@ -4,12 +4,10 @@ import { Pencil, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { InlineError } from "@/app/(app)/allocate/bits";
 import { DataTable, dataTableColumns, SortableHeader } from "@/components/data-table";
-import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { LocationPicker } from "@/components/location-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AdminLocationRow } from "@/lib/admin-types";
-import type { FieldErrors } from "@/lib/api-contract";
 import { api, useApi } from "@/lib/client";
 import type { UpdateLocationInput } from "@/lib/validators/admin";
 import { ConfirmAction } from "../confirm-action";
@@ -17,30 +15,13 @@ import { FormDialog, type ReadField } from "@/components/form-dialog";
 
 // /admin/locations: grid locations. One used by a center or an impact can't
 // change, because distances and stored field reports depend on it. The API
-// enforces that; here the Edit button just goes away.
+// enforces that; here the Edit button just goes away. Add and Edit place the
+// location with the shared LocationPicker.
 
 const used = (l: AdminLocationRow) => l.center_count + l.impact_count > 0;
 
 /** A number from a coordinate input; blank becomes NaN, which JSON sends as null and the API refuses. */
 const coordinate = (read: ReadField, key: string) => Number(read(key) || NaN);
-
-function LocationFields({ fields, location }: { fields: FieldErrors; location?: AdminLocationRow }) {
-  return (
-    <>
-      <FormField htmlFor="grid_id" label="Grid id" error={fields.grid_id}>
-        <Input id="grid_id" name="grid_id" defaultValue={location?.grid_id} placeholder="BLR-HSR-LAYOUT" aria-invalid={!!fields.grid_id} autoFocus />
-      </FormField>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <FormField htmlFor="latitude" label="Latitude" error={fields.latitude}>
-          <Input id="latitude" name="latitude" type="number" step="any" defaultValue={location?.latitude} aria-invalid={!!fields.latitude} />
-        </FormField>
-        <FormField htmlFor="longitude" label="Longitude" error={fields.longitude}>
-          <Input id="longitude" name="longitude" type="number" step="any" defaultValue={location?.longitude} aria-invalid={!!fields.longitude} />
-        </FormField>
-      </div>
-    </>
-  );
-}
 
 const col = dataTableColumns<AdminLocationRow>();
 
@@ -77,6 +58,7 @@ function columns(onDone: () => void) {
                   </Button>
                 }
                 title={`Edit ${location.grid_id}`}
+                className="sm:max-w-lg"
                 savedMessage="Location updated"
                 onDone={onDone}
                 submit={async (read) => {
@@ -92,7 +74,7 @@ function columns(onDone: () => void) {
                   await api(`/api/admin/locations/${location.location_id}`, { method: "PATCH", body: JSON.stringify(body) });
                 }}
               >
-                {(fields) => <LocationFields fields={fields} location={location} />}
+                {(fields) => <LocationPicker mode="admin" editing={location} errors={fields} />}
               </FormDialog>
             )}
             <ConfirmAction
@@ -129,6 +111,7 @@ export function LocationsView() {
             </Button>
           }
           title="New location"
+          className="sm:max-w-lg"
           savedMessage="Location created"
           onDone={() => void refresh()}
           submit={async (read) => {
@@ -138,7 +121,7 @@ export function LocationsView() {
             });
           }}
         >
-          {(fields) => <LocationFields fields={fields} />}
+          {(fields) => <LocationPicker mode="admin" errors={fields} />}
         </FormDialog>
       </div>
       <DataTable
