@@ -10,7 +10,7 @@ import { humanize, humanizedOptions, withQuery } from "@/app/(app)/emergencies/f
 import { DataTable } from "@/components/data-table";
 import { ALL, FilterSelect } from "@/components/filter-select";
 import { FormField } from "@/components/form-field";
-import { ErasMap, type MapPoint, severityColor } from "@/components/map";
+import { ErasMap, type MapPoint, severityMarker } from "@/components/map";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -119,7 +119,7 @@ export function ReportList() {
         id: String(r.observation_id),
         lat: r.latitude,
         lng: r.longitude,
-        color: severityColor(r.severity),
+        ...severityMarker(r.severity),
         label: `${r.grid_id ?? "Unknown location"} · ${r.severity ? humanize(r.severity) : "no severity"} · ${formatIst(r.reported_at)}`,
         onClick: () => router.push(`/reports/${r.observation_id}`),
       })),

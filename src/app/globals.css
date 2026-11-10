@@ -133,3 +133,9 @@
     @apply bg-background text-foreground text-sm antialiased;
   }
 }
+
+/* Map circles (src/components/map/map-view.tsx): a dark halo around the white
+   outline, so a marker reads on the light basemap as well as the dark one. */
+.eras-marker {
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.65)) drop-shadow(0 0 2px rgb(0 0 0 / 0.35));
+}

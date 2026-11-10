@@ -7,14 +7,18 @@ export type MapPoint = {
   id: string;
   lat: number;
   lng: number;
-  /** Any CSS colour; see severityColor. */
+  /** Any CSS colour, var(--token) included; see severityMarker and centerStatusColor. */
   color: string;
   /** Shown on hover. */
   label: string;
-  /** A circle unless set. */
+  /** A circle unless set. Squares always draw above circles. */
   shape?: "circle" | "square";
+  /** Circles only: just the outline, in `color`. */
+  hollow?: boolean;
   /** Circles only. */
   radius?: number;
+  /** Circles only, 0-9: a higher rank draws above a lower one. See severityMarker. */
+  rank?: number;
   onClick?: () => void;
 };
 
@@ -30,22 +34,36 @@ export type ErasMapProps = {
   height?: string;
 };
 
+// The StatusBadge hues (allocate/bits.tsx), stronger so they read on both
+// basemaps. Markers get a white outline and a dark halo, which carries the
+// lighter fills on the light basemap and the darker ones on the dark one.
+
 const SEVERITY_COLORS: Record<Severity, string> = {
   LOW: "#64748b",
-  MODERATE: "#0284c7",
-  HIGH: "#d97706",
+  MODERATE: "#3b82f6",
+  HIGH: "#f97316",
   CRITICAL: "#dc2626",
 };
 
-/** A severity's marker colour; grey-blue when there's no observation. */
+/** The hollow ring for an impact with no observation: at least 3:1 on both basemaps. */
+export const NO_OBSERVATION_COLOR = "#8a8a8a";
+
+/** A severity's marker colour; NO_OBSERVATION_COLOR when there's no observation. */
 export function severityColor(severity: Severity | null): string {
-  return severity ? SEVERITY_COLORS[severity] : "#94a3b8";
+  return severity ? SEVERITY_COLORS[severity] : NO_OBSERVATION_COLOR;
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { LOW: 1, MODERATE: 2, HIGH: 3, CRITICAL: 4 };
+
+/** How to draw a severity: its colour, CRITICAL on top, and a hollow ring when there's no observation. */
+export function severityMarker(severity: Severity | null): Pick<MapPoint, "color" | "hollow" | "rank"> {
+  return { color: severityColor(severity), hollow: severity === null, rank: severity ? SEVERITY_RANK[severity] : 0 };
 }
 
 const CENTER_STATUS_COLORS: Record<CenterStatus, string> = {
   OPERATIONAL: "#16a34a",
-  LIMITED: "#ca8a04",
-  CLOSED: "#475569",
+  LIMITED: "#eab308",
+  CLOSED: "#3f3f46",
 };
 
 /** A resource center's marker colour. */

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
 import { humanize } from "@/app/(app)/emergencies/format";
-import { ErasMap, severityColor } from "@/components/map";
+import { ErasMap, severityMarker } from "@/components/map";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -97,9 +97,9 @@ function Report({ report }: { report: ReportDetail }) {
             id: "report",
             lat: report.latitude,
             lng: report.longitude,
-            color: severityColor(report.severity),
+            ...severityMarker(report.severity),
             label: report.grid_id ?? "Report",
-            radius: 10,
+            radius: 11,
           },
         ]}
         height="16rem"

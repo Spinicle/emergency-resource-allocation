@@ -6,7 +6,7 @@ import { InlineError, StatusBadge } from "@/app/(app)/allocate/bits";
 import { formatIst, formatQty } from "@/app/(app)/allocate/format";
 import { humanize } from "@/app/(app)/emergencies/format";
 import { ActivityTimeline } from "@/components/activity-timeline";
-import { centerStatusColor, ErasMap, type MapPoint, severityColor } from "@/components/map";
+import { centerStatusColor, ErasMap, type MapPoint, severityMarker } from "@/components/map";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/client";
@@ -60,7 +60,7 @@ function ImpactMap({ data }: { data: DashboardData }) {
         id: `impact-${i.impact_id}`,
         lat: i.latitude,
         lng: i.longitude,
-        color: severityColor(i.latest_severity),
+        ...severityMarker(i.latest_severity),
         label: `${i.grid_id} · ${i.emergency_name} · ${i.latest_severity ? humanize(i.latest_severity) : "No observation"} · ${humanize(i.status)}`,
       })),
       ...data.centers.map((c) => ({

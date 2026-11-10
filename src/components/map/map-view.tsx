@@ -3,8 +3,8 @@
 import "leaflet/dist/leaflet.css";
 import { type DivIcon, divIcon } from "leaflet";
 import { cn } from "cn";
-import { useEffect } from "react";
-import { CircleMarker, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { useEffect, useMemo } from "react";
+import { CircleMarker, MapContainer, Marker, Pane, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { BASEMAP_CHOICES, BASEMAPS, type BasemapChoice, setBasemapChoice, useBasemapChoice, usePrefersDark } from "./basemap";
 import type { ErasMapProps, MapPoint } from "./map-types";
 
@@ -12,10 +12,15 @@ import type { ErasMapProps, MapPoint } from "./map-types";
 // this, through next/dynamic with ssr: false. CircleMarker rather than an image
 // Marker: Leaflet's default icon images break under bundlers. Squares are Markers
 // with a divIcon, which uses no images.
+//
+// Every marker has a 2px white outline and a dark halo (.eras-marker in
+// globals.css), so it reads on the light and the dark basemap alike.
 
 const KARNATAKA = { lat: 12.9, lng: 76.8 };
 
-const SQUARE_SIZE = 14;
+const CIRCLE_RADIUS = 9;
+const SQUARE_SIZE = 16;
+const HALO = "0 0 0 0.5px rgb(0 0 0 / 0.55), 0 0 3px rgb(0 0 0 / 0.6)";
 const squareIcons = new Map<string, DivIcon>();
 
 /**
@@ -35,8 +40,9 @@ function squareIcon(color: string): DivIcon {
       width: "100%",
       height: "100%",
       background: color,
-      border: "1px solid #fff",
-      borderRadius: "2px",
+      border: "2px solid #fff",
+      borderRadius: "3px",
+      boxShadow: HALO,
     });
     icon = divIcon({
       className: "eras-map-square",
@@ -47,6 +53,27 @@ function squareIcon(color: string): DivIcon {
     squareIcons.set(color, icon);
   }
   return icon;
+}
+
+/**
+ * SVG attributes don't take var(--token), so a token colour is read off the
+ * page. dark is only there to read it again when the theme flips.
+ */
+function useResolvedColors(points: readonly MapPoint[], dark: boolean): Map<string, string> {
+  return useMemo(() => {
+    void dark;
+    const resolved = new Map<string, string>();
+    const probe = document.createElement("span");
+    document.body.appendChild(probe);
+    for (const { color } of points) {
+      if (color.startsWith("var(") && !resolved.has(color)) {
+        probe.style.color = color;
+        resolved.set(color, getComputedStyle(probe).color || color);
+      }
+    }
+    probe.remove();
+    return resolved;
+  }, [points, dark]);
 }
 
 /** Zooms to the points whenever the set of points changes. */
@@ -105,11 +132,51 @@ function BasemapSwitch({ choice }: { choice: BasemapChoice }) {
   );
 }
 
+/**
+ * Circles go into one pane per rank, z-index 410-419: above the tiles and
+ * Leaflet's overlay pane (400), below the marker pane (600) where the squares
+ * are. A pane fixes the order however the points arrive or change; SVG would
+ * otherwise draw them in the order Leaflet happened to add them.
+ */
+function CircleLayers({ points, colors }: { points: readonly MapPoint[]; colors: Map<string, string> }) {
+  const byRank = new Map<number, MapPoint[]>();
+  for (const p of points) {
+    const rank = Math.min(9, Math.max(0, Math.round(p.rank ?? 0)));
+    byRank.set(rank, [...(byRank.get(rank) ?? []), p]);
+  }
+  return [...byRank].map(([rank, group]) => (
+    <Pane key={rank} name={`eras-rank-${rank}`} style={{ zIndex: 410 + rank }}>
+      {group.map((p) => {
+        const color = colors.get(p.color) ?? p.color;
+        return (
+          <CircleMarker
+            key={p.id}
+            center={[p.lat, p.lng]}
+            radius={p.radius ?? CIRCLE_RADIUS}
+            pathOptions={
+              p.hollow
+                ? { className: "eras-marker", color, weight: 3, fillOpacity: 0 }
+                : { className: "eras-marker", color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.9 }
+            }
+            // A clicked marker isn't also a click on the map behind it.
+            bubblingMouseEvents={!p.onClick}
+            eventHandlers={p.onClick ? { click: p.onClick } : undefined}
+          >
+            <Tooltip>{p.label}</Tooltip>
+          </CircleMarker>
+        );
+      })}
+    </Pane>
+  ));
+}
+
 export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoints = true, onMapClick, height = "24rem" }: ErasMapProps) {
   const choice = useBasemapChoice();
   const dark = usePrefersDark();
   const basemap = choice === "auto" ? (dark ? "dark" : "light") : choice;
   const tiles = BASEMAPS[basemap];
+  const colors = useResolvedColors(points, dark);
+  const circles = points.filter((p) => p.shape !== "square");
   return (
     <div className="relative">
       <BasemapSwitch choice={choice} />
@@ -118,28 +185,15 @@ export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoint
         <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} subdomains={tiles.subdomains} maxZoom={tiles.maxZoom} />
         {fitPoints && <FitToPoints points={points} />}
         {onMapClick && <ClickHandler onMapClick={onMapClick} />}
-        {points.map((p) =>
-          p.shape === "square" ? (
-            <Marker
-              key={p.id}
-              position={[p.lat, p.lng]}
-              icon={squareIcon(p.color)}
-              eventHandlers={p.onClick ? { click: p.onClick } : undefined}
-            >
+        <CircleLayers points={circles} colors={colors} />
+        {/* Markers don't pass clicks to the map (bubblingMouseEvents is false for them). */}
+        {points
+          .filter((p) => p.shape === "square")
+          .map((p) => (
+            <Marker key={p.id} position={[p.lat, p.lng]} icon={squareIcon(p.color)} eventHandlers={p.onClick ? { click: p.onClick } : undefined}>
               <Tooltip>{p.label}</Tooltip>
             </Marker>
-          ) : (
-            <CircleMarker
-              key={p.id}
-              center={[p.lat, p.lng]}
-              radius={p.radius ?? 7}
-              pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: 0.7, weight: 1 }}
-              eventHandlers={p.onClick ? { click: p.onClick } : undefined}
-            >
-              <Tooltip>{p.label}</Tooltip>
-            </CircleMarker>
-          ),
-        )}
+          ))}
       </MapContainer>
     </div>
   );
