@@ -4,8 +4,8 @@ import dynamic from "next/dynamic";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ErasMapProps } from "./map-types";
 
-export { MapKey, MapSwatch } from "./legend";
-export { centerStatusColor, type ErasMapProps, type MapPoint, NO_OBSERVATION_COLOR, severityColor, severityMarker } from "./map-types";
+export { MapKey } from "./legend";
+export { centerStatusColor, type ErasMapProps, type MapPoint, type MarkerStyle, severityColor, severityMarker } from "./map-types";
 
 // The map every page uses. ssr: false is only allowed in a Client Component.
 

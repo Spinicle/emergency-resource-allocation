@@ -22,6 +22,9 @@ export type MapPoint = {
   onClick?: () => void;
 };
 
+/** How a marker or its legend swatch is drawn. */
+export type MarkerStyle = Pick<MapPoint, "color" | "shape" | "hollow">;
+
 export type ErasMapProps = {
   points: readonly MapPoint[];
   /** The starting view. Ignored while fitPoints is on and there are points. */
@@ -50,7 +53,7 @@ const SEVERITY_COLORS: Record<Severity, string> = {
 };
 
 /** The hollow ring for an impact with no observation: at least 3:1 on both basemaps. */
-export const NO_OBSERVATION_COLOR = "#8a8a8a";
+const NO_OBSERVATION_COLOR = "#8a8a8a";
 
 /** A severity's marker colour; NO_OBSERVATION_COLOR when there's no observation. */
 export function severityColor(severity: Severity | null): string {
@@ -60,7 +63,7 @@ export function severityColor(severity: Severity | null): string {
 const SEVERITY_RANK: Record<Severity, number> = { LOW: 1, MODERATE: 2, HIGH: 3, CRITICAL: 4 };
 
 /** How to draw a severity: its colour, CRITICAL on top, and a hollow ring when there's no observation. */
-export function severityMarker(severity: Severity | null): Pick<MapPoint, "color" | "hollow" | "rank"> {
+export function severityMarker(severity: Severity | null): MarkerStyle & Pick<MapPoint, "rank"> {
   return { color: severityColor(severity), hollow: severity === null, rank: severity ? SEVERITY_RANK[severity] : 0 };
 }
 

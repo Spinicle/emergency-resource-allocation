@@ -13,15 +13,14 @@ import type { ErasMapProps, MapPoint } from "./map-types";
 // Marker: Leaflet's default icon images break under bundlers. Squares are Markers
 // with a divIcon, which uses no images.
 //
-// Every marker has a 2px white outline and a dark halo (.eras-marker in
-// globals.css), so it reads on the light and the dark basemap alike.
+// Every marker has a 2px white outline (a hollow one just its ring) and the
+// dark halo of .eras-marker in globals.css, so it reads on both basemaps.
 
 const KARNATAKA = { lat: 12.9, lng: 76.8 };
 const FOCUS_ZOOM = 13;
 
 const CIRCLE_RADIUS = 9;
 const SQUARE_SIZE = 16;
-const HALO = "0 0 0 0.5px rgb(0 0 0 / 0.55), 0 0 3px rgb(0 0 0 / 0.6)";
 const squareIcons = new Map<string, DivIcon>();
 
 /**
@@ -29,7 +28,8 @@ const squareIcons = new Map<string, DivIcon>();
  * render. html is a string because Leaflet appends an element as it is, and
  * markers sharing this icon would take it from each other; setting style on a
  * real element leaves the escaping to the browser. className replaces the
- * default leaflet-div-icon, which would draw a white box behind the square.
+ * default leaflet-div-icon, which would draw a white box behind the square,
+ * with the halo every marker has.
  */
 function squareIcon(color: string): DivIcon {
   let icon = squareIcons.get(color);
@@ -43,10 +43,9 @@ function squareIcon(color: string): DivIcon {
       background: color,
       border: "2px solid #fff",
       borderRadius: "3px",
-      boxShadow: HALO,
     });
     icon = divIcon({
-      className: "eras-map-square",
+      className: "eras-marker",
       html: square.outerHTML,
       iconSize: [SQUARE_SIZE, SQUARE_SIZE],
       iconAnchor: [SQUARE_SIZE / 2, SQUARE_SIZE / 2],

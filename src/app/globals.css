@@ -134,8 +134,10 @@
   }
 }
 
-/* Map circles (src/components/map/map-view.tsx): a dark halo around the white
-   outline, so a marker reads on the light basemap as well as the dark one. */
+/* Map markers and their legend swatches (src/components/map): a dark halo
+   around the white outline, or around a hollow ring, so a marker reads on the
+   light basemap as well as the dark one. drop-shadow follows the shape, so the
+   same rule fits SVG circles and HTML squares. */
 .eras-marker {
   filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.65)) drop-shadow(0 0 2px rgb(0 0 0 / 0.35));
 }
