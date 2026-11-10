@@ -34,7 +34,7 @@ export type ErasMapProps = {
   fitPoints?: boolean;
   /** With fitPoints: zoom to the points only when this changes, not when points come and go. */
   fitKey?: string;
-  /** Pans here, zooming in to at least 13, each time a new object is passed. */
+  /** Pans here, zooming in to at least 13, whenever these coordinates change. */
   focus?: { lat: number; lng: number } | null;
   onMapClick?: (at: { lat: number; lng: number }) => void;
   /** CSS height of the map. */

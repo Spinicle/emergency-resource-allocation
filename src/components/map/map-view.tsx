@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import { type DivIcon, divIcon } from "leaflet";
 import { cn } from "cn";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { CircleMarker, MapContainer, Marker, Pane, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { BASEMAP_CHOICES, BASEMAPS, type BasemapChoice, setBasemapChoice, useBasemapChoice, usePrefersDark } from "./basemap";
 import type { ErasMapProps, MapPoint } from "./map-types";
@@ -55,25 +55,24 @@ function squareIcon(color: string): DivIcon {
   return icon;
 }
 
+const resolvedColors = new Map<string, string>();
+
 /**
- * SVG attributes don't take var(--token), so a token colour is read off the
- * page. dark is only there to read it again when the theme flips.
+ * A circle's colour as an SVG attribute takes it: var(--token) read off the
+ * page, once per theme, since the tokens change with it. Any other colour as is.
  */
-function useResolvedColors(points: readonly MapPoint[], dark: boolean): Map<string, string> {
-  return useMemo(() => {
-    void dark;
-    const resolved = new Map<string, string>();
-    const probe = document.createElement("span");
-    document.body.appendChild(probe);
-    for (const { color } of points) {
-      if (color.startsWith("var(") && !resolved.has(color)) {
-        probe.style.color = color;
-        resolved.set(color, getComputedStyle(probe).color || color);
-      }
-    }
+function svgColor(color: string, dark: boolean): string {
+  if (!color.startsWith("var(")) return color;
+  const key = `${dark ? "dark" : "light"} ${color}`;
+  let resolved = resolvedColors.get(key);
+  if (resolved === undefined) {
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.color = color;
+    resolved = getComputedStyle(probe).color || color;
     probe.remove();
-    return resolved;
-  }, [points, dark]);
+    resolvedColors.set(key, resolved);
+  }
+  return resolved;
 }
 
 /**
@@ -97,11 +96,11 @@ function FitToPoints({ points, fitKey }: { points: readonly MapPoint[]; fitKey?:
   return null;
 }
 
-function FocusOn({ focus }: { focus: { lat: number; lng: number } }) {
+function FocusOn({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([focus.lat, focus.lng], Math.max(map.getZoom(), FOCUS_ZOOM));
-  }, [map, focus]);
+    map.setView([lat, lng], Math.max(map.getZoom(), FOCUS_ZOOM));
+  }, [map, lat, lng]);
   return null;
 }
 
@@ -150,16 +149,18 @@ function BasemapSwitch({ choice }: { choice: BasemapChoice }) {
  * are. A pane fixes the order however the points arrive or change; SVG would
  * otherwise draw them in the order Leaflet happened to add them.
  */
-function CircleLayers({ points, colors }: { points: readonly MapPoint[]; colors: Map<string, string> }) {
+function CircleLayers({ points, dark }: { points: readonly MapPoint[]; dark: boolean }) {
   const byRank = new Map<number, MapPoint[]>();
   for (const p of points) {
     const rank = Math.min(9, Math.max(0, Math.round(p.rank ?? 0)));
-    byRank.set(rank, [...(byRank.get(rank) ?? []), p]);
+    const group = byRank.get(rank);
+    if (group) group.push(p);
+    else byRank.set(rank, [p]);
   }
   return [...byRank].map(([rank, group]) => (
     <Pane key={rank} name={`eras-rank-${rank}`} style={{ zIndex: 410 + rank }}>
       {group.map((p) => {
-        const color = colors.get(p.color) ?? p.color;
+        const color = svgColor(p.color, dark);
         return (
           <CircleMarker
             key={p.id}
@@ -196,8 +197,8 @@ export default function MapView({
   const dark = usePrefersDark();
   const basemap = choice === "auto" ? (dark ? "dark" : "light") : choice;
   const tiles = BASEMAPS[basemap];
-  const colors = useResolvedColors(points, dark);
   const circles = points.filter((p) => p.shape !== "square");
+  const squares = points.filter((p) => p.shape === "square");
   return (
     <div className="relative">
       <BasemapSwitch choice={choice} />
@@ -206,17 +207,15 @@ export default function MapView({
         <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} maxZoom={tiles.maxZoom} />
         {fitPoints && <FitToPoints points={points} fitKey={fitKey} />}
         {/* After FitToPoints, so a focus given from the start wins over the first fit. */}
-        {focus && <FocusOn focus={focus} />}
+        {focus && <FocusOn lat={focus.lat} lng={focus.lng} />}
         {onMapClick && <ClickHandler onMapClick={onMapClick} />}
-        <CircleLayers points={circles} colors={colors} />
+        <CircleLayers points={circles} dark={dark} />
         {/* Markers don't pass clicks to the map (bubblingMouseEvents is false for them). */}
-        {points
-          .filter((p) => p.shape === "square")
-          .map((p) => (
-            <Marker key={p.id} position={[p.lat, p.lng]} icon={squareIcon(p.color)} eventHandlers={p.onClick ? { click: p.onClick } : undefined}>
-              <Tooltip>{p.label}</Tooltip>
-            </Marker>
-          ))}
+        {squares.map((p) => (
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={squareIcon(p.color)} eventHandlers={p.onClick ? { click: p.onClick } : undefined}>
+            <Tooltip>{p.label}</Tooltip>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );
