@@ -17,6 +17,7 @@ import type { ErasMapProps, MapPoint } from "./map-types";
 // globals.css), so it reads on the light and the dark basemap alike.
 
 const KARNATAKA = { lat: 12.9, lng: 76.8 };
+const FOCUS_ZOOM = 13;
 
 const CIRCLE_RADIUS = 9;
 const SQUARE_SIZE = 16;
@@ -76,10 +77,10 @@ function useResolvedColors(points: readonly MapPoint[], dark: boolean): Map<stri
   }, [points, dark]);
 }
 
-/** Zooms to the points whenever the set of points changes. */
-function FitToPoints({ points }: { points: readonly MapPoint[] }) {
+/** Zooms to the points whenever the set of points changes, or only when fitKey does. */
+function FitToPoints({ points, fitKey }: { points: readonly MapPoint[]; fitKey?: string }) {
   const map = useMap();
-  const ids = points.map((p) => p.id).join("|");
+  const ids = fitKey ?? points.map((p) => p.id).join("|");
   useEffect(() => {
     if (points.length > 0) {
       map.fitBounds(
@@ -90,6 +91,14 @@ function FitToPoints({ points }: { points: readonly MapPoint[] }) {
     // ids stands for points: a new array with the same reports shouldn't move the view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, ids]);
+  return null;
+}
+
+function FocusOn({ focus }: { focus: { lat: number; lng: number } }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([focus.lat, focus.lng], Math.max(map.getZoom(), FOCUS_ZOOM));
+  }, [map, focus]);
   return null;
 }
 
@@ -170,7 +179,16 @@ function CircleLayers({ points, colors }: { points: readonly MapPoint[]; colors:
   ));
 }
 
-export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoints = true, onMapClick, height = "24rem" }: ErasMapProps) {
+export default function MapView({
+  points,
+  center = KARNATAKA,
+  zoom = 8,
+  fitPoints = true,
+  fitKey,
+  focus,
+  onMapClick,
+  height = "24rem",
+}: ErasMapProps) {
   const choice = useBasemapChoice();
   const dark = usePrefersDark();
   const basemap = choice === "auto" ? (dark ? "dark" : "light") : choice;
@@ -183,7 +201,9 @@ export default function MapView({ points, center = KARNATAKA, zoom = 8, fitPoint
       <MapContainer center={[center.lat, center.lng]} zoom={zoom} style={{ height, width: "100%" }} className="rounded-md border">
         {/* The key swaps the layer whole: react-leaflet doesn't update attribution in place. */}
         <TileLayer key={basemap} url={tiles.url} attribution={tiles.attribution} subdomains={tiles.subdomains} maxZoom={tiles.maxZoom} />
-        {fitPoints && <FitToPoints points={points} />}
+        {fitPoints && <FitToPoints points={points} fitKey={fitKey} />}
+        {/* After FitToPoints, so a focus given from the start wins over the first fit. */}
+        {focus && <FocusOn focus={focus} />}
         {onMapClick && <ClickHandler onMapClick={onMapClick} />}
         <CircleLayers points={circles} colors={colors} />
         {/* Markers don't pass clicks to the map (bubblingMouseEvents is false for them). */}
