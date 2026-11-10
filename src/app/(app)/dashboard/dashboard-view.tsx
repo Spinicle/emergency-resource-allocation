@@ -86,27 +86,26 @@ type Count = { key: string; label: string; count: number };
 
 /** A labelled group of counts. Zero rows are left out. */
 function CountGroup({ title, rows }: { title: string; rows: Count[] }) {
-  const shown = rows.filter((r) => r.count > 0);
   return (
     <section>
       <h3 className="border-b pb-1.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">{title}</h3>
-      {shown.length === 0 ? (
-        <p className="pt-2 text-muted-foreground">No field reports yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-1.5 pt-2">
-          {shown.map((r) => (
+      <ul className="flex flex-col gap-1.5 pt-2">
+        {rows
+          .filter((r) => r.count > 0)
+          .map((r) => (
             <li key={r.key} className="flex justify-between gap-3 text-foreground">
               <span>{r.label}</span>
               <span className="font-medium tabular-nums">{formatQty(r.count)}</span>
             </li>
           ))}
-        </ul>
-      )}
+      </ul>
     </section>
   );
 }
 
+/** Both groups count every report, so with any reports each has a row above zero. */
 function ReportCounts({ summary }: { summary: DashboardData["summary"] }) {
+  if (summary.total === 0) return <p className="text-muted-foreground">No field reports yet.</p>;
   return (
     <div className="flex flex-col gap-6">
       <CountGroup title="By type" rows={summary.byType.map((t) => ({ key: t.type, label: humanize(t.type), count: t.count }))} />
