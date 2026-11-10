@@ -9,7 +9,7 @@ import type { z } from "zod";
 import { InlineError } from "@/app/(app)/allocate/bits";
 import { humanize } from "@/app/(app)/emergencies/format";
 import { FormField } from "@/components/form-field";
-import { ErasMap, type MapPoint } from "@/components/map";
+import { ErasMap, MapKey, type MapPoint } from "@/components/map";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,9 @@ import { buildDetails, DetailsFields, type DetailValues, EMPTY_DETAILS, toNumber
 // /reports/new: posts to /api/observations. The form runs the API's own schema
 // before it submits. emergency_type comes from the chosen emergency, and the
 // location is the impact's unless a point is picked on the map.
+
+const IMPACT_COLOR = "var(--foreground)";
+const PICKED_COLOR = "var(--primary)";
 
 type NeedRow = { key: number; item: string; est_qty: string; unit: string };
 type InfrastructureRow = { key: number; kind: string; name: string; status: string };
@@ -203,10 +206,11 @@ export function NewReportForm() {
 
   const loadError = emergencies.error ?? resources.error ?? emergency.error;
 
+  // Theme colours, not severity hues: on the other maps red means CRITICAL.
   const mapPoints: MapPoint[] = impact
     ? [
-        { id: "impact", lat: impact.latitude, lng: impact.longitude, color: "#0284c7", label: impact.grid_id, radius: 9 },
-        ...(point ? [{ id: "picked", ...point, color: "#dc2626", label: "Where it was seen", radius: 7 }] : []),
+        { id: "impact", lat: impact.latitude, lng: impact.longitude, color: IMPACT_COLOR, hollow: true, label: impact.grid_id, radius: 11 },
+        ...(point ? [{ id: "picked", ...point, color: PICKED_COLOR, label: "Where it was seen", radius: 8, rank: 1 }] : []),
       ]
     : [];
 
@@ -293,6 +297,10 @@ export function NewReportForm() {
                 height="18rem"
                 onMapClick={(at) => setPoint({ lat: Number(at.lat.toFixed(6)), lng: Number(at.lng.toFixed(6)) })}
               />
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                <MapKey color={IMPACT_COLOR} hollow label={`Impact location (${impact.grid_id})`} />
+                <MapKey color={PICKED_COLOR} label="Where it was seen" />
+              </ul>
               <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
                 <span>
                   {point
